@@ -752,13 +752,15 @@ int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
 }
 
 /* host_frame at twice the size, with the HD voxel layer (hdvox.c); 0 when HD
- * voxels are off, the frame is not 16-bit, or 2x would not fit. *pw, *ph get
- * the game's (1x) size. */
+ * voxels are off, the frame is not 16-bit, or 2x would not fit; -1 when the
+ * primary could not be read just now (the game has it locked): no picture
+ * then, not a 1x one, which flashed the whole screen at 1x between 2x
+ * pictures. *pw, *ph get the game's (1x) size. */
 int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     int w, h, bpp, pitch;
     if (!ra2_vox_hd_on) return 0;
     EnterCriticalSection(&g_snap_lock);
-    if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return 0; }
+    if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
     int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
     if (ok) hdvox_compose(g_snap, pitch, w, h, out);
     LeaveCriticalSection(&g_snap_lock);
@@ -776,7 +778,7 @@ static DWORD WINAPI hd_frame_dumper(LPVOID unused) {
     for (int n = 0; n < 60; ) {
         int w, h;
         Sleep(10000);
-        if (!host_frame_hd(px, 4096, 2160, &w, &h)) continue;
+        if (host_frame_hd(px, 4096, 2160, &w, &h) <= 0) continue;
         w *= 2, h *= 2;
         char path[MAX_PATH];
         _snprintf(path, sizeof path - 1, "%s/frame_%02d.bmp", g_hd_frames_dir, n++), path[sizeof path - 1] = 0;
