@@ -423,7 +423,7 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "scale", k_mode_names[g_mode], g_ini);
     WritePrivateProfileStringA("present", "bars", g_bars ? "blur" : "black", g_ini);
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
-    WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_on ? "1" : "0", g_ini);
+    WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_show ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
         GetWindowRect(hw, &r);
@@ -487,7 +487,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)sc, "Scaling\tF12");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
-    AppendMenuA(m, MF_STRING | (ra2_vox_hd_on ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
+    AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -502,7 +502,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     if (cmd >= ID_SCALE && cmd < ID_SCALE + NMODES) g_mode = cmd - ID_SCALE;
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
-    else if (cmd == ID_HDVOX) ra2_vox_hd_on = !ra2_vox_hd_on;      /* takes effect next frame */
+    else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -760,7 +760,8 @@ void present_start(int mode, int fullscreen) {
     g_bars = _stricmp(v, "black") != 0;
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
-        ra2_vox_hd_on = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
+        ra2_vox_hd_show = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
+    ra2_vox_hd_on = 1;                      /* on or off, F10 can switch them on (hdvox.h) */
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));

@@ -134,6 +134,9 @@ battlefield, and the host records it the same way as a unit's copy.
 **Cost.** While HD voxels are on, the voxel caches are off (units at
 `0x007067E4`, shadows at `0x00706C10`), so every unit and shadow is rendered
 each frame, as the rules' `DisableVoxelCache` and `DisableShadowCache` would.
+In the presenter they stay off for the whole run, with HD vehicles switched
+off too (F10 then only stops the 2x work): caches filled while HD was off
+and then bypassed again drew every turret facing the camera (issue #8).
 The 2x images are remembered by a hash of their 1x pixels, so the three
 extra passes run only for an image not seen before (a new facing or frame):
 in a skirmish 99.99% come from memory. `RA2_FRAME_STATS=1` prints the time

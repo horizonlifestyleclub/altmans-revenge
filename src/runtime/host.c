@@ -758,7 +758,7 @@ int host_frame(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
  * pictures. *pw, *ph get the game's (1x) size. */
 int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     int w, h, bpp, pitch;
-    if (!ra2_vox_hd_on) return 0;
+    if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
     EnterCriticalSection(&g_snap_lock);
     if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
     int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
