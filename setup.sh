@@ -138,8 +138,12 @@ fi
 # Wine reports as a read accepted (runtime/native32/native32.c). The native
 # host is the lifted game on win32hle's DirectDraw, DirectSound, Bink and windows.
 # An older clone has neither: it is updated (pcrecomp's main has both).
+# And a lifter with MMX paddusb (without it every light, an explosion's or a
+# Tesla shot's, draws as a black circle) and a sar that sign-extends byte and
+# word operands, the later of the two.
 toolkit_ok() {
   grep -q SetProcessDEPPolicy "$PCRECOMP/runtime/native32/native32.c" &&
+    grep -q 'int{w}_t' "$PCRECOMP/tools/lift/lift32.py" &&
     { [ "$NATIVE" != 1 ] || [ -f "$PCRECOMP/runtime/win32hle/bink.c" ]; }
 }
 if ! toolkit_ok && [ -d "$PCRECOMP/.git" ]; then
@@ -216,21 +220,27 @@ for g in $GAMES; do
     grep -E "Functions:|coverage" "$work/disasm.log"
   fi
   step "$name: lifting to C (a minute or two)"
-  if done_already "$gen/recomp_dispatch.c"; then say "  done (skipping)"; else
+  # A lift made by an older lifter (or older patches) is made again, and so is
+  # the build from it (run_lift.py --check).
+  relifted=0
+  if done_already "$gen/recomp_dispatch.c" && "$PY" run_lift.py --target "$target" --check; then
+    say "  done (skipping)"
+  else
     "$PY" run_lift.py --all --target "$target" > "$work/lift.log" 2>&1 || fail "see $work/lift.log"
     grep "lifted" "$work/lift.log" | tail -1
+    relifted=1
   fi
   if [ "$NATIVE" = 1 ]; then
     lbuild=${build/build/build-linux}
     step "$name: building $lbuild/ra2 (10 to 30 minutes)"
-    if done_already "$lbuild/ra2"; then say "  done (skipping)"; else
+    if [ "$relifted" = 0 ] && done_already "$lbuild/ra2"; then say "  done (skipping)"; else
       [ "$FORCE" = 1 ] && rm -rf "$lbuild"
       BUILD_DIR=$lbuild CMAKE_ARGS=-DRA2_TARGET=$target ./build-linux.sh > "$work/build-linux.log" 2>&1 ||
         fail "the build failed: see $work/build-linux.log"
     fi
   else
     step "$name: building $build/ra2.exe (10 to 20 minutes)"
-    if done_already "$build/ra2.exe"; then say "  done (skipping)"; else
+    if [ "$relifted" = 0 ] && done_already "$build/ra2.exe"; then say "  done (skipping)"; else
       [ "$FORCE" = 1 ] && rm -rf "$build"
       BUILD_DIR=$build CMAKE_ARGS=-DRA2_TARGET=$target ./build.sh > "$work/build.log" 2>&1 ||
         fail "the build failed: see $work/build.log"

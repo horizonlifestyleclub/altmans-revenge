@@ -111,6 +111,15 @@ if (-not (Test-Path (Join-Path $T 'lift\lift32.py'))) {
 if (-not (Test-Path (Join-Path $Toolkit 'runtime\native32\native32.c'))) {
   Fail "your pcrecomp at $Toolkit predates runtime\native32. Update it: git -C `"$Toolkit`" pull"
 }
+# A lifter with MMX paddusb (without it every light, an explosion's or a Tesla
+# shot's, draws as a black circle) and a sar that sign-extends byte and word
+# operands, the later of the two.
+$sarOk = { Select-String -Quiet -SimpleMatch 'int{w}_t' (Join-Path $T 'lift\lift32.py') }
+if (-not (& $sarOk) -and (Test-Path (Join-Path $Toolkit '.git'))) {
+  Say "  Your pcrecomp is older than this build needs."
+  if (Ask "  Update it now (git pull)?") { Run "Updating pcrecomp" @('git', '-C', $Toolkit, 'pull', '--ff-only') }
+}
+if (-not (& $sarOk)) { Fail "your pcrecomp at $Toolkit is too old for this build. Update it: git -C `"$Toolkit`" pull" }
 Say "  pcrecomp: $Toolkit"
 
 # The compiler. build.cmd finds Visual Studio itself; this only checks that it
@@ -203,14 +212,19 @@ foreach ($g in $Targets) {
   }
 
   Step $n "$($g.Name): lifting to C (5 to 15 minutes)"; $n++
-  if ((Test-Path "$($g.Gen)\recomp_dispatch.c") -and -not $Force) { Say "  Already done (skipping)." }
+  # A lift made by an older lifter (or older patches) is made again, and so is
+  # the build from it (run_lift.py --check).
+  $env:PCRECOMP = $Toolkit
+  $relifted = $false
+  if ((Test-Path "$($g.Gen)\recomp_dispatch.c") -and -not $Force -and
+      (Exec ($pyargs + @('run_lift.py', '--target', $g.Target, '--check'))) -eq 0) { Say "  Already done (skipping)." }
   else {
-    $env:PCRECOMP = $Toolkit
     Run "Lifting" ($pyargs + @('run_lift.py', '--all', '--target', $g.Target))
+    $relifted = $true
   }
 
   Step $n "$($g.Name): building $($g.Build)\ra2.exe (10 to 30 minutes)"; $n++
-  if ((Test-Path "$($g.Build)\ra2.exe") -and -not $Force) { Say "  Already done (skipping)." }
+  if ((Test-Path "$($g.Build)\ra2.exe") -and -not $Force -and -not $relifted) { Say "  Already done (skipping)." }
   else {
     $env:BUILD_DIR = $g.Build; $env:CMAKE_ARGS = "-DRA2_TARGET=$($g.Target)"
     $buildCmd = Join-Path $Root 'build.cmd'

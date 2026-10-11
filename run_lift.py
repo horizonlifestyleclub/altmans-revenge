@@ -23,6 +23,7 @@ disassembler pass names them, and an unresolved slot answers eax = 0.
     py -3 run_lift.py --all
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -299,6 +300,18 @@ def exe_stamp(path):
     return int.from_bytes(head[nt + 8:nt + 12], 'little')
 
 
+def lifter_stamp():
+    """What a lift depends on besides the game: the toolkit's lifter and this
+    file's patches. Setup re-lifts when it differs from the one the lift wrote
+    (src/recomp/gen/lift_stamp.txt), so a lifter fix reaches an existing install:
+    a lift from before MMX paddusb was lifted drew every light as a black circle."""
+    h = hashlib.sha1()
+    for p in (os.path.join(_TOOLS, 'lift', 'lift32.py'), os.path.join(_TOOLS, 'lift', 'generate.py'),
+              os.path.abspath(__file__)):
+        h.update(open(p, 'rb').read().replace(b'\r\n', b'\n'))
+    return h.hexdigest()[:16]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--target', choices=('gamemd', 'game'), default='gamemd',
@@ -315,8 +328,16 @@ def main():
     # More entries a run found, on top of RUN_SEEDS (seed_from_log.py JSON).
     ap.add_argument('--seeds', default=None,
                     help='seed_from_log.py JSON of unresolved targets from runs')
+    ap.add_argument('--check', action='store_true',
+                    help='exit 0 if the lift is current (this lifter, these patches), 1 if not')
     args = ap.parse_args()
     tgt = targets()[args.target]
+    if args.check:
+        try:
+            sys.exit(0 if open(os.path.join(args.out or tgt['out'], 'lift_stamp.txt')).read().strip()
+                     == lifter_stamp() else 1)
+        except OSError:
+            sys.exit(1)
     args.exe = args.exe or tgt['exe']
     args.catalog = args.catalog or tgt['catalog']
     args.out = args.out or tgt['out']
@@ -502,6 +523,7 @@ def main():
              'no_terminator': dirty, 'files': idx, 'lines': lines}
     json.dump(stats, open(tgt['stats'], 'w'), indent=1)
     write_target_header(args.out, args.target, tgt)
+    open(os.path.join(args.out, 'lift_stamp.txt'), 'w').write(lifter_stamp() + '\n')
     print('=' * 60)
     print('  lifted %d   not-lifted stubs %d   errors %d   no terminator %d'
           % (len(chosen), len(stubs), errors, dirty))
