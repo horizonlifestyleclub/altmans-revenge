@@ -658,7 +658,7 @@ volatile LONG ra2_frame_copies;
 /* 0x004373B0 entry: a copy into the frame surface ends the frame. */
 void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
     (void)argp;
-    static int empty_copies, stats = -1;
+    static int stats = -1;
     if (dest == FRAME_SURF) InterlockedIncrement(&ra2_frame_copies);
     if (stats < 0) stats = getenv("RA2_FRAME_STATS") != NULL;
     if (stats && dest == FRAME_SURF) {            /* frame time, HD voxels on or off */
@@ -678,10 +678,12 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
     if (!HD_LIVE || dest != FRAME_SURF) return;
     if (!g_arena[0]) return;
     /* The frame surface gets more than one copy a frame: publish when this
-     * frame recorded something, or after a few copies with nothing (no unit
-     * on screen). A stale record shows nothing: the frame no longer matches. */
-    if (!g_used[g_build] && ++empty_copies < 4) return;
-    empty_copies = 0;
+     * frame recorded something, never an empty set. Moving the mouse makes
+     * copies with nothing recorded, and publishing nothing after a few of
+     * them showed every unit at 1x for a picture, a flicker at each mouse
+     * move (issues #9, #14). Records kept past their frame are harmless: a
+     * record's 2x pixels show only where the frame still matches it. */
+    if (!g_used[g_build]) return;
     if (!g_pub_lock_init) InitializeCriticalSection(&g_pub_lock), g_pub_lock_init = 1;
     EnterCriticalSection(&g_pub_lock);
     g_build ^= 1;                                 /* publish this frame's records */
