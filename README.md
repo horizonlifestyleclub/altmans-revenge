@@ -150,9 +150,10 @@ builds. A rerun skips finished steps. If it stops, it says why in one
 sentence; the details are in `setup.log`.
 
 To update, get this repository again (or `git pull`), `git pull` the
-pcrecomp toolkit, and run Setup again: when the lifter or its patches have
-changed it lifts and builds again, since a fix to the lifter only reaches the
-game through a new lift.
+pcrecomp toolkit, and run Setup again. It always builds again, compiling
+only what changed, and when the lifter or its patches have changed it lifts
+again first, since a fix to the lifter only reaches the game through a new
+lift.
 
 Setup.cmd runs exactly the commands in *Step by step*, and has been run end
 to end from a clean folder (the ZIP download).

@@ -212,24 +212,21 @@ foreach ($g in $Targets) {
   }
 
   Step $n "$($g.Name): lifting to C (5 to 15 minutes)"; $n++
-  # A lift made by an older lifter (or older patches) is made again, and so is
-  # the build from it (run_lift.py --check).
+  # A lift made by an older lifter (or older patches) is made again
+  # (run_lift.py --check).
   $env:PCRECOMP = $Toolkit
-  $relifted = $false
   if ((Test-Path "$($g.Gen)\recomp_dispatch.c") -and -not $Force -and
       (Exec ($pyargs + @('run_lift.py', '--target', $g.Target, '--check'))) -eq 0) { Say "  Already done (skipping)." }
   else {
     Run "Lifting" ($pyargs + @('run_lift.py', '--all', '--target', $g.Target))
-    $relifted = $true
   }
 
   Step $n "$($g.Name): building $($g.Build)\ra2.exe (10 to 30 minutes)"; $n++
-  if ((Test-Path "$($g.Build)\ra2.exe") -and -not $Force -and -not $relifted) { Say "  Already done (skipping)." }
-  else {
-    $env:BUILD_DIR = $g.Build; $env:CMAKE_ARGS = "-DRA2_TARGET=$($g.Target)"
-    $buildCmd = Join-Path $Root 'build.cmd'
-    Run "Compiling" @('cmd', '/c', ('call "' + $buildCmd + '"'))
-  }
+  # Always: the build only compiles what changed (seconds when nothing did),
+  # so a pulled fix to the host reaches ra2.exe.
+  $env:BUILD_DIR = $g.Build; $env:CMAKE_ARGS = "-DRA2_TARGET=$($g.Target)"
+  $buildCmd = Join-Path $Root 'build.cmd'
+  Run "Compiling" @('cmd', '/c', ('call "' + $buildCmd + '"'))
 }
 
 # ---------------------------------------------------------------- shortcuts
