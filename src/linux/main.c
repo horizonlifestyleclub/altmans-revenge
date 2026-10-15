@@ -77,6 +77,27 @@ static int compose_hd(const uint8_t *px16, int pitch, int w, int h, uint32_t *ou
     return 1;
 }
 
+/* Modern controls (src/runtime/present.c) are a Windows presenter setting;
+ * the lift's hooks call into it on every target, so here they pass the game's
+ * own input through, as Classic does. */
+int ra2_modern_controls(void) { return 0; }
+uint32_t ra2_modern_mouse_message(uint32_t message, int special) { (void)special; return message; }
+uint32_t ra2_modern_radar_event_flags(uint32_t flags) { return flags; }
+uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target, uint32_t target_vtable,
+                                      int selected_in_group, uint32_t selection_count, int special) {
+    (void)target, (void)target_vtable, (void)selected_in_group, (void)selection_count, (void)special;
+    return action;
+}
+int ra2_modern_take_type_select(void) { return 0; }
+void ra2_modern_end_left_up(void) {}
+int ra2_modern_preserve_global_selection_clear(void) { return 0; }
+int ra2_modern_preserve_shift_selection(void) { return 0; }
+int ra2_modern_consume_right_drag_release(void) { return 0; }
+int ra2_modern_shift_box_begin(void) { return 0; }
+void ra2_modern_shift_box_decide(void) {}
+void ra2_modern_shift_box_end(void) {}
+int ra2_modern_box_object(int selected) { (void)selected; return 1; }
+
 /* ---- game-specific answers ------------------------------------------------ */
 
 /* Message boxes print; headless, a question is answered No. */

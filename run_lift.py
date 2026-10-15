@@ -232,14 +232,202 @@ HD_VOXEL_PATCHES_GAME = {
 }
 
 
+MODERN_CONTROLS_TARGETS = {
+    'gamemd': {
+        'message': 0x00693107, 'radar': 0x006539D3, 'radar_stack': 0x48,
+        'action': 0x00693271, 'right_up': 0x004AAE6E,
+        'special_state': 0x11A4, 'special_flags': 0x11B0, 'special_sentinel': 0x11B8,
+        'box_clear': 0x004ABCD4, 'object_clear': 0x004ABE4A,
+        'clear': 0x0048DC90, 'clear_skip': 'L_0048DCB1', 'clear_fn': 'sub_0048DC90',
+        'after_left_up': 0x00693290,
+        'type_select_down': 'sub_00732CA0', 'type_select_up': 'sub_00732CC0',
+        'box_walk': 0x004ABCEB, 'box_walk_fn': 'sub_006D9FF0',
+        'box_select': 0x004AC2F1, 'box_object': 'esi', 'is_selected': 0x83,
+        'select_slot': 0x14C, 'deselect_slot': 0x150,
+        'selection_count': 0x00A8ECC8, 'selection_data': 0x00A8ECBC,
+        'unit_vtable': 0x007F5C70, 'infantry_vtable': 0x007EB058,
+        'aircraft_vtable': 0x007E22A4,
+    },
+    'game': {
+        'message': 0x0066A467, 'radar': 0x0062FE33, 'radar_stack': 0x44,
+        'action': 0x0066A5D1, 'right_up': 0x0049B0CE,
+        'special_state': 0x11A0, 'special_flags': 0x11AC, 'special_sentinel': 0x11B4,
+        'box_clear': 0x0049BE44, 'object_clear': 0x0049BFB4,
+        'clear': 0x00482BC0, 'clear_skip': 'L_00482BE1', 'clear_fn': 'sub_00482BC0',
+        'after_left_up': 0x0066A5F0,
+        'type_select_down': 'sub_006F7650', 'type_select_up': 'sub_006F7670',
+        'box_walk': 0x0049BE5B, 'box_walk_fn': 'sub_006AA610',
+        'box_select': 0x0049C470, 'box_object': 'edi', 'is_selected': 0x77,
+        'select_slot': 0x140, 'deselect_slot': 0x144,
+        'selection_count': 0x00A40C70, 'selection_data': 0x00A40C64,
+        'unit_vtable': 0x007ADDF8, 'infantry_vtable': 0x007A3540,
+        'aircraft_vtable': 0x0079B12C,
+    },
+}
+
+
+QUEUE_FIVE_TARGETS = {
+    'gamemd': {
+        'count': 0x00A802C8, 'index': 0x00A802D0, 'ring': 0x00A802D4,
+        'stamps': 0x00A83A54, 'get_async_key_state': 0x007E13E0,
+        'time_get_time': 0x007E1530, 'sites': (0x006AB511, 0x006AB76E),
+    },
+    'game': {
+        'count': 0x00A32338, 'index': 0x00A32340, 'ring': 0x00A32344,
+        'stamps': 0x00A35AC4, 'get_async_key_state': 0x0079A3B4,
+        'time_get_time': 0x0079A524, 'sites': (0x0068119E, 0x006813EF),
+    },
+}
+
+
+def modern_controls_patches(target):
+    """Modern controls' battlefield mouse behavior, for either game target."""
+    t = MODERN_CONTROLS_TARGETS[target]
+    clear_fn = t['clear_fn']
+    addr = lambda key: '0x%08Xu' % t[key]
+    special_expr = (
+        'MEM32(esi + 0x%X) != 0 || '
+        'MEM8(esi + 0x%X) || MEM8(esi + 0x%X) || MEM8(esi + 0x%X) || '
+        'MEM8(esi + 0x%X) || MEM8(esi + 0x%X) || '
+        'MEM32(esi + 0x%X) != 0xFFFFFFFFu'
+    ) % (t['special_state'], t['special_flags'], t['special_flags'] + 1,
+         t['special_flags'] + 2, t['special_flags'] + 3, t['special_flags'] + 4,
+         t['special_sentinel'])
+    patches = {
+        # The game has already read the Windows message here. Route right
+        # presses through left-button bookkeeping only when no active
+        # placement/order mode needs its original right-up cancellation.
+        t['message']: (
+            '{ extern uint32_t ra2_modern_mouse_message(uint32_t, int); '
+            'int special = %s; '
+            'eax = ra2_modern_mouse_message(eax, special); } '
+            '/* optional F10 Modern controls */') % special_expr,
+        # Keep the mapped radar flags in the stack argument as well as DL;
+        # later branches in this handler read the argument again.
+        t['radar']: (
+            '{ extern uint32_t ra2_modern_radar_event_flags(uint32_t); '
+            'SET_LO8(edx, ra2_modern_radar_event_flags(LO8(edx))); '
+            'MEM8(esp + 0x%X) = LO8(edx); } '
+            '/* swap radar left/right event flags in Modern mode */') % t['radar_stack'],
+        # In Modern mode, plain left-clicks select objects or clear the
+        # selection on open ground; contextual orders remain on right-click.
+        # The mouse-up handler (0x004AB9B0) still selects a selectable target
+        # when the action is None, so a click that must not touch the
+        # selection (0xFFFFFFFE) also clears the target slot it reads.
+        t['action']: (
+            '{ extern uint32_t ra2_modern_left_click_action(uint32_t, uint32_t, uint32_t, int, uint32_t, int); '
+            'int special = %s; '
+            'uint32_t target = MEM32(esp + 0x30); uint32_t vtable = target ? MEM32(target) : 0; '
+            'uint32_t selection_count = MEM32(%s); uint32_t selected_in_group = 0; '
+            'uint32_t selected_data = MEM32(%s); '
+            'if (target && selected_data && selection_count <= 4096u) '
+            'for (uint32_t i = 0; i < selection_count; ++i) '
+            'if (MEM32(selected_data + i * 4u) == target) { selected_in_group = 1; break; } '
+            'uint32_t action = ra2_modern_left_click_action(eax, target, vtable, selected_in_group, selection_count, special); '
+            'if (action == 0xFFFFFFFFu) { RECOMP_CALL(%s); RECOMP_FLAGS_IN(); eax = 0; } '
+            'else if (action == 0xFFFFFFFEu) { MEM32(esp + 0x30) = 0; eax = 0; } '
+            'else eax = action; } '
+            '/* optional F10 Modern controls */') % (special_expr, addr('selection_count'), addr('selection_data'), clear_fn),
+        # Just after LeftMouseButtonUp returns: run a same-type selection the
+        # click asked for (TypeSelectCommandClass's own key-down and key-up
+        # halves, as one tap of its key), then end the click's one-shot
+        # selection-clear skip.
+        t['after_left_up']: (
+            '{ extern int ra2_modern_take_type_select(void); '
+            'extern void ra2_modern_end_left_up(void); '
+            'if (ra2_modern_take_type_select()) { '
+            'RECOMP_CALL(%s); RECOMP_FLAGS_IN(); RECOMP_CALL(%s); RECOMP_FLAGS_IN(); } '
+            'ra2_modern_end_left_up(); } '
+            '/* optional F10 Modern controls */') % (t['type_select_down'], t['type_select_up']),
+        # A Shift box over units that are all selected already removes them.
+        # With Shift held, walk the box once as a dry run (the walk clears the
+        # box it reads, so put it back), let the presenter decide, then walk it
+        # for real.
+        t['box_walk']: (
+            '@replace:{ extern int ra2_modern_shift_box_begin(void); '
+            'extern void ra2_modern_shift_box_decide(void); extern void ra2_modern_shift_box_end(void); '
+            'if (ra2_modern_shift_box_begin()) { '
+            'uint32_t _box_this = ecx, _box_cb = MEM32(esp); '
+            'uint32_t _box_a = MEM32(_box_this + 0xD90u), _box_b = MEM32(_box_this + 0xD94u); '
+            'PUSH32(esp, _box_cb); RECOMP_CALL(%s); RECOMP_FLAGS_IN(); '
+            'MEM32(_box_this + 0xD90u) = _box_a; MEM32(_box_this + 0xD94u) = _box_b; '
+            'ecx = _box_this; ra2_modern_shift_box_decide(); } '
+            'RECOMP_CALL(%s); ra2_modern_shift_box_end(); } '
+            '/* optional F10 Modern controls */') % (t['box_walk_fn'], t['box_walk_fn']),
+        # The box walk's per-object Select(): skipped in the dry run, Deselect()
+        # when the whole box was already selected.
+        t['box_select']: (
+            '@replace:{ extern int ra2_modern_box_object(int); '
+            'int _box = ra2_modern_box_object(MEM8(%s + 0x%X) != 0); '
+            'if (_box == 1) RECOMP_ICALL(MEM32(edx + 0x%X)); '
+            'else { if (_box == 2) RECOMP_ICALL(MEM32(edx + 0x%X)); eax = 0; } } '
+            '/* optional F10 Modern controls */') % (
+                t['box_object'], t['is_selected'], t['select_slot'], t['deselect_slot']),
+        # The original right-up cleanup clears selection after camera pan.
+        t['right_up']: (
+            '@replace:{ extern int ra2_modern_consume_right_drag_release(void); '
+            'if (!ra2_modern_consume_right_drag_release()) RECOMP_CALL(%s); } '
+            '/* optional F10 Modern controls */') % clear_fn,
+        # The drag-selection release normally clears the selection before
+        # applying the rectangle. Keep it when Shift is held in Modern mode.
+        t['box_clear']: (
+            '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '
+            'if (!ra2_modern_preserve_shift_selection()) RECOMP_CALL(%s); } '
+            '/* optional F10 Modern controls */') % clear_fn,
+        # The virtual mouse-up path and the same-type selection can clear
+        # selection through this shared routine instead of either mouse-up
+        # clear site above.
+        t['clear']: (
+            '{ extern int ra2_modern_preserve_global_selection_clear(void); '
+            'if (ra2_modern_preserve_global_selection_clear()) goto %s; } '
+            '/* preserve existing selection during a Shift-click or Shift box drag */') % t['clear_skip'],
+        # Mouse-up can also clear selection while processing a target object.
+        t['object_clear']: (
+            '@replace:{ extern int ra2_modern_preserve_shift_selection(void); '
+            'if (!ra2_modern_preserve_shift_selection()) RECOMP_CALL(%s); } '
+            '/* optional F10 Modern controls */') % clear_fn,
+    }
+    return patches
+
+
+def queue_five_patches(target):
+    """Modern controls: Shift-click a sidebar build icon to queue five of it
+    (docs/modern-controls.md)."""
+    t = QUEUE_FIVE_TARGETS[target]
+
+    def after_production_event():
+        return (
+            '{ extern int ra2_queue_five_append(uint32_t, uint32_t); '
+            'extern int ra2_modern_controls(void); '
+            'uint32_t _queue_five_event = eax; '
+            'if (ra2_modern_controls()) { '
+            'PUSH32(esp, 0x10u); '
+            'RECOMP_ICALL(MEM32(0x%08Xu)); RECOMP_FLAGS_IN(); '
+            'if (eax & 0x8000u) { uint32_t _queue_five_added = 0; '
+            'while (_queue_five_added < 4u && MEM32(0x%08Xu) < 0x80u) { '
+            'RECOMP_ICALL(MEM32(0x%08Xu)); RECOMP_FLAGS_IN(); '
+            'if (!ra2_queue_five_append(_queue_five_event, eax)) break; '
+            '++_queue_five_added; } } } '
+            'eax = _queue_five_event; } '
+            '/* Queue Five (Modern controls): Shift-click adds four matching events before the original. */'
+        ) % (t['get_async_key_state'], t['count'], t['time_get_time'])
+
+    # These are the two normal production-event branches for this target.
+    return {site: after_production_event() for site in t['sites']}
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
         tag = '/* 0x%08X:' % va
         k = body.find(tag)
         if k != -1:
+            start = body.rfind('\n', 0, k) + 1
             e = body.index('\n', k)
-            body = body[:e + 1] + '    ' + c + '\n' + body[e + 1:]
+            if c.startswith('@replace:'):
+                body = body[:start] + '    ' + c[len('@replace:'):] + '\n' + body[e + 1:]
+            else:
+                body = body[:e + 1] + '    ' + c + '\n' + body[e + 1:]
     return body
 
 
@@ -261,7 +449,8 @@ def targets():
         'gamemd': dict(exe=EXE, catalog=CATALOG, seeds=SEEDS, out=OUT, stats=STATS,
                        run_seeds=RUN_SEEDS, hooks=HOOKS, exe_name='gamemd.exe', ini_name='RA2MD.INI',
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
-                       patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES}),
+                       patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
+                                                 **modern_controls_patches('gamemd'), **queue_five_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
@@ -274,7 +463,8 @@ def targets():
                      # by 50 reads as Yuri's Revenge's does.
                      patches=lambda code, cs: {**sidebar_rows_patches(code, cs, 0x0067B000, 0x00683000,
                                                                      (0x0083962C, 0x00ABCD64)),
-                                               **HD_VOXEL_PATCHES_GAME}),
+                                               **HD_VOXEL_PATCHES_GAME,
+                                               **modern_controls_patches('game'), **queue_five_patches('game')}),
     }
 
 
@@ -290,6 +480,15 @@ def write_target_header(out, name, t):
         f.write('#define RA2_HOOK_DEBUGLOG_VA 0x%08Xu\n' % (debuglog[0] if debuglog else 0))
         f.write('#define RA2_GAME_FRAME_VA 0x%08Xu   /* the game\'s frame count */\n' % t['game_frame'])
         f.write('#define RA2_EXE_STAMP 0x%08Xu   /* its PE timestamp: the build lifted */\n' % t['stamp'])
+        modern = MODERN_CONTROLS_TARGETS[name]
+        queue = QUEUE_FIVE_TARGETS[name]
+        for key, macro in (('unit_vtable', 'RA2_MODERN_UNIT_VTABLE'),
+                           ('infantry_vtable', 'RA2_MODERN_INFANTRY_VTABLE'),
+                           ('aircraft_vtable', 'RA2_MODERN_AIRCRAFT_VTABLE')):
+            f.write('#define %s 0x%08Xu\n' % (macro, modern[key]))
+        for key, macro in (('count', 'RA2_QUEUE_FIVE_COUNT_VA'), ('index', 'RA2_QUEUE_FIVE_INDEX_VA'),
+                           ('ring', 'RA2_QUEUE_FIVE_RING_VA'), ('stamps', 'RA2_QUEUE_FIVE_STAMPS_VA')):
+            f.write('#define %s 0x%08Xu\n' % (macro, queue[key]))
 
 
 def exe_stamp(path):

@@ -23,6 +23,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -106,6 +107,27 @@ static struct {
 
 static int g_mode;                       /* index into k_mode_names */
 static int g_bars = 1;                   /* the bars beside a letterboxed picture: 0 black, 1 blurred */
+/* Modern controls (docs/modern-controls.md). The window procedure
+ * latches what the game's hooks need from the real mouse messages: */
+static volatile LONG g_modern_controls;  /* opt-in battlefield semantics */
+static volatile LONG g_modern_left_double_click_at;    /* tick of a battlefield double-click */
+static volatile LONG g_modern_left_double_click_shift; /* ... made with Shift held */
+static volatile LONG g_modern_shift_box_select;        /* Shift held during the left press */
+static volatile LONG g_modern_shift_box_dragged;       /* the left press became a drag */
+static POINT g_modern_left_press;        /* client point of the left press (window thread only) */
+/* and the game thread's own state, for the click being handled: */
+static int g_modern_skip_selection_clear; /* the click adds to the selection */
+static int g_modern_type_select;         /* the click selects every visible unit of its type */
+static int g_modern_box_shift;           /* the box-selection clear was skipped for Shift */
+static int g_modern_box_mode;            /* what the box walk's Select() does: MODERN_BOX_* */
+static int g_modern_box_objects, g_modern_box_unselected; /* counted by the dry run */
+static int g_modern_right_click;         /* set while a routed right-up is resolved */
+static int g_modern_right_gesture;       /* right-down is awaiting click vs. drag */
+static int g_modern_right_pending;       /* synthetic left-up sent, native right-down next */
+static int g_modern_right_drag;          /* native right-drag camera pan is active */
+static int g_modern_suppress_left_release;   /* the handoff release must not issue a click */
+static int g_modern_suppress_right_deselect; /* a pan release must not clear selection */
+static POINT g_modern_right_origin;      /* screen point of the right press */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
 static int g_fullscreen;
@@ -423,6 +445,8 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "scale", k_mode_names[g_mode], g_ini);
     WritePrivateProfileStringA("present", "bars", g_bars ? "blur" : "black", g_ini);
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
+    WritePrivateProfileStringA("present", "controls",
+        InterlockedCompareExchange(&g_modern_controls, 0, 0) ? "modern" : "classic", g_ini);
     WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_show ? "1" : "0", g_ini);
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
@@ -464,13 +488,15 @@ static void set_game_resolution(int w, int h) {
     fprintf(stderr, "[present] game resolution %dx%d (the next game opens at it)\n", w, h);
 }
 
-enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500, ID_MOD = 600 };
+enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500,
+       ID_MOD = 600, ID_CONTROLS = 700 };
 #define MAX_MENU_MODS 64
 
 static void settings_menu(HWND hw) {             /* at the mouse */
     POINT at;
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
     HMENU mods = CreatePopupMenu();
+    HMENU controls = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -488,6 +514,11 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
     AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
+    AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
+                ID_CONTROLS, "Classic");
+    AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
+                ID_CONTROLS + 1, "Modern");
+    AppendMenuA(m, MF_POPUP, (UINT_PTR)controls, "Controls");
     AppendMenuA(m, MF_SEPARATOR, 0, NULL);
     AppendMenuA(m, MF_POPUP, (UINT_PTR)res, "Game resolution (next game)");
     /* the mods in mods\<game>: choosing one restarts the game with it (mods.c) */
@@ -503,6 +534,8 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
     else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
+    else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
+        InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
     else if (cmd >= ID_MOD && cmd <= ID_MOD + nmods) {
         const char* name = cmd == ID_MOD ? "" : mod_names[cmd - ID_MOD - 1];
@@ -558,6 +591,31 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT m, WPARAM w, LPARAM l) {
         if ((m == WM_LBUTTONUP || m == WM_RBUTTONUP || m == WM_MBUTTONUP) &&
             !(w & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON)))
             ReleaseCapture();
+        int modern_controls = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+        if (m == WM_LBUTTONDOWN || m == WM_LBUTTONDBLCLK) {
+            InterlockedExchange(&g_modern_shift_box_select,
+                modern_controls && (w & MK_SHIFT) != 0);
+            InterlockedExchange(&g_modern_shift_box_dragged, 0);
+            g_modern_left_press.x = GET_X_LPARAM(l), g_modern_left_press.y = GET_Y_LPARAM(l);
+        } else if (modern_controls && m == WM_MOUSEMOVE && (w & MK_LBUTTON)) {
+            if (w & MK_SHIFT)
+                InterlockedExchange(&g_modern_shift_box_select, 1);
+            /* A wobble during a click is not a drag: only past the Windows
+             * drag distance does the press become a box selection. */
+            if (abs(GET_X_LPARAM(l) - g_modern_left_press.x) >= GetSystemMetrics(SM_CXDRAG) ||
+                abs(GET_Y_LPARAM(l) - g_modern_left_press.y) >= GetSystemMetrics(SM_CYDRAG))
+                InterlockedExchange(&g_modern_shift_box_dragged, 1);
+        } else if (modern_controls && m == WM_LBUTTONUP) {
+            if (w & MK_SHIFT) InterlockedExchange(&g_modern_shift_box_select, 1);
+        }
+
+        if (m == WM_LBUTTONDBLCLK && modern_controls) {
+            POINT p = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };
+            if (PtInRect(&g_dst, p)) {
+                InterlockedExchange(&g_modern_left_double_click_at, (LONG)GetTickCount());
+                InterlockedExchange(&g_modern_left_double_click_shift, (w & MK_SHIFT) != 0);
+            }
+        }
         forward_mouse(m == WM_LBUTTONDBLCLK ? WM_LBUTTONDOWN : m == WM_RBUTTONDBLCLK ? WM_RBUTTONDOWN : m,
                       w, GET_X_LPARAM(l), GET_Y_LPARAM(l));
         return 0;
@@ -758,6 +816,8 @@ void present_start(int mode, int fullscreen) {
     g_mode = present_mode_from_name(v) >= 0 ? present_mode_from_name(v) : 0;
     GetPrivateProfileStringA("present", "bars", "blur", v, sizeof v, g_ini);
     g_bars = _stricmp(v, "black") != 0;
+    GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
+    InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
     if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
         ra2_vox_hd_show = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
@@ -765,4 +825,246 @@ void present_start(int mode, int fullscreen) {
     if (mode >= 0) g_mode = mode;
     input_live(1);
     CloseHandle(CreateThread(NULL, 0, present_thread, (LPVOID)(intptr_t)fullscreen, 0, NULL));
+}
+
+/* Whether Modern controls are on, for the lifted hooks that only act then
+ * (Queue Five). */
+int ra2_modern_controls(void) {
+    return InterlockedCompareExchange(&g_modern_controls, 0, 0) != 0;
+}
+
+/* Called only from the lifted battlefield message dispatcher. A short right
+ * click reuses the game's left-click action resolver. Once the pointer crosses
+ * the Windows drag threshold, keep the native right-button path for camera pan. */
+uint32_t ra2_modern_mouse_message(uint32_t message, int special_mode_active) {
+    g_modern_right_click = 0;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special_mode_active) {
+        g_modern_right_gesture = 0;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_left_release = 0;
+        g_modern_suppress_right_deselect = 0;
+        input_live_map_right_to_left(0);
+        return message;
+    }
+    if (message == WM_RBUTTONDOWN) {
+        g_modern_right_gesture = 1;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_left_release = 0;
+        g_modern_suppress_right_deselect = 0;
+        GetCursorPos(&g_modern_right_origin);
+        input_live_map_right_to_left(1);
+        return WM_LBUTTONDOWN;
+    }
+    if (message == WM_MOUSEMOVE && g_modern_right_gesture && !g_modern_right_drag) {
+        if (g_modern_right_pending) {
+            g_modern_right_pending = 0;
+            g_modern_right_drag = 1;
+            return WM_RBUTTONDOWN;          /* start native pan after the left release was handled */
+        }
+        POINT point;
+        if (GetCursorPos(&point)) {
+            int dx = GetSystemMetrics(SM_CXDRAG);
+            int dy = GetSystemMetrics(SM_CYDRAG);
+            if (dx < 1) dx = 4;
+            if (dy < 1) dy = 4;
+            if (abs(point.x - g_modern_right_origin.x) >= dx ||
+                abs(point.y - g_modern_right_origin.y) >= dy) {
+                g_modern_right_pending = 1;
+                g_modern_suppress_left_release = 1;
+                input_live_map_right_to_left(0);
+                return WM_LBUTTONUP;        /* release the synthetic left-down without a click */
+            }
+        }
+        return message;
+    }
+    if (message == WM_RBUTTONUP && g_modern_right_gesture) {
+        int was_pending = g_modern_right_pending;
+        int was_drag = g_modern_right_drag;
+        g_modern_right_gesture = 0;
+        g_modern_right_pending = 0;
+        g_modern_right_drag = 0;
+        g_modern_suppress_right_deselect = was_drag;
+        input_live_map_right_to_left(0);
+        if (was_drag) return message;       /* preserve native right-up */
+        if (was_pending) return 0;          /* threshold crossed before a native pan could start */
+        g_modern_right_click = 1;
+        return WM_LBUTTONUP;
+    }
+    return message;
+}
+
+/* RadarClass encodes left-button events in the low flag nibble and
+ * right-button events in the high nibble. Hover's 0x88 flag is symmetric,
+ * so swapping nibbles changes button semantics without turning hover into a
+ * click action. */
+uint32_t ra2_modern_radar_event_flags(uint32_t flags) {
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0)) {
+        input_live_swap_left_right(0);
+        return flags;
+    }
+    input_live_swap_left_right(input_live_button_state() & (MK_LBUTTON | MK_RBUTTON));
+    return ((flags & 0x0Fu) << 4) | ((flags & 0xF0u) >> 4);
+}
+
+/* Results of ra2_modern_left_click_action besides the game's own action
+ * values. The mouse-up patch in run_lift.py ('action' in MODERN_CONTROLS_TARGETS)
+ * tests for these exact values.
+ *
+ * Action None does not make the mouse-up handler (0x004AB9B0) a no-op: with a
+ * selectable, unselected target it still takes the select branch (0x004ABDE1).
+ * A click that must not select anything therefore passes None with no target
+ * at all, which leaves the handler through its plain exit. */
+#define MODERN_CLICK_CLEAR_SELECTION 0xFFFFFFFFu /* clear the selection, then None */
+#define MODERN_CLICK_IGNORE          0xFFFFFFFEu /* None with the target dropped */
+
+/* The game's Action values the resolver rewrites. */
+enum { ACTION_NONE = 0, ACTION_MOVE = 1, ACTION_SELECT = 7, ACTION_TOGGLE_SELECT = 8 };
+
+uint32_t ra2_modern_left_click_action(uint32_t action, uint32_t target,
+                                      uint32_t target_vtable, int selected_in_group,
+                                      uint32_t selection_count, int special) {
+    /* The release that hands a right-drag to the native pan is not a click. */
+    if (g_modern_suppress_left_release) {
+        g_modern_suppress_left_release = 0;
+        return MODERN_CLICK_IGNORE;
+    }
+    LONG double_click_at = InterlockedExchange(&g_modern_left_double_click_at, 0);
+    int double_click = double_click_at &&
+        (DWORD)(GetTickCount() - (DWORD)double_click_at) <= GetDoubleClickTime();
+    int additive_double_click = InterlockedExchange(&g_modern_left_double_click_shift, 0) &&
+        double_click;
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || special)
+        return action;
+
+    int selecting = action == ACTION_SELECT || action == ACTION_TOGGLE_SELECT;
+    if (g_modern_right_click) {
+        /* A routed right-click issues contextual orders only. Select and
+         * ToggleSelect would change the selection, and None can too (see
+         * MODERN_CLICK_IGNORE). Every other action passes through. */
+        return action == ACTION_NONE || selecting ? MODERN_CLICK_IGNORE : action;
+    }
+
+    int selectable_unit = target && (target_vtable == RA2_MODERN_UNIT_VTABLE ||
+                                     target_vtable == RA2_MODERN_INFANTRY_VTABLE ||
+                                     target_vtable == RA2_MODERN_AIRCRAFT_VTABLE);
+    if (!double_click && action == ACTION_MOVE && selectable_unit && !selected_in_group &&
+        InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
+        g_modern_skip_selection_clear = 1;
+
+    if (double_click && selectable_unit) {
+        /* The game's same-type selection runs once the mouse-up handler has
+         * returned (ra2_modern_take_type_select), so its own on-screen and
+         * ownership rules apply. Shift keeps the old group while it adds the
+         * matching units. */
+        g_modern_type_select = 1;
+        if (additive_double_click) {
+            g_modern_skip_selection_clear = 1;
+            return MODERN_CLICK_IGNORE;
+        }
+        return action == ACTION_MOVE ? ACTION_SELECT : selecting ? action : ACTION_NONE;
+    }
+
+    /* Shift on an object that is already selected: the game's own ToggleSelect,
+     * which calls only that object's Deselect(). */
+    if (target && selected_in_group && InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0))
+        return ACTION_TOGGLE_SELECT;
+
+    /* A unit in a multi-unit selection: force the ordinary single-object path,
+     * which clears the group before adding the clicked unit back. */
+    if (selectable_unit && selected_in_group && selection_count > 1) return ACTION_SELECT;
+
+    /* Open ground: a plain click clears the selection; with Shift, which only
+     * ever adds to the selection, it leaves it alone. */
+    if (!target) {
+        if (selecting) return action;
+        return InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0)
+            ? MODERN_CLICK_IGNORE : MODERN_CLICK_CLEAR_SELECTION;
+    }
+    if (action == ACTION_MOVE) return ACTION_SELECT;
+    return selecting ? action : ACTION_NONE;
+}
+
+/* After the click's mouse-up handler: whether it asked for a same-type
+ * selection, which the lifted hook runs before ra2_modern_end_left_up. */
+int ra2_modern_take_type_select(void) {
+    int type_select = g_modern_type_select;
+    g_modern_type_select = 0;
+    return type_select;
+}
+
+/* The click is done: a selection-clear skip it set and did not use must not
+ * leak into a later click. */
+void ra2_modern_end_left_up(void) {
+    g_modern_skip_selection_clear = 0;
+    g_modern_box_shift = 0;
+}
+
+/* The shared selection-clear routine (sub_0048DC90 in Yuri's Revenge): skip it
+ * once during a Shift-click or Shift-double-click that adds to the selection,
+ * or at the end of a Shift box drag. */
+int ra2_modern_preserve_global_selection_clear(void) {
+    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    if (g_modern_skip_selection_clear) {
+        g_modern_skip_selection_clear = 0;
+        if (modern) return 1;
+    }
+    LONG dragged = InterlockedCompareExchange(&g_modern_shift_box_dragged, 0, 0);
+    LONG shifted = dragged
+        ? InterlockedExchange(&g_modern_shift_box_select, 0)
+        : InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0);
+    return modern && dragged && shifted;
+}
+
+/* The mouse-up handler's own box-selection and target-object clear calls. */
+int ra2_modern_preserve_shift_selection(void) {
+    LONG modern = InterlockedCompareExchange(&g_modern_controls, 0, 0);
+    LONG latched = InterlockedExchange(&g_modern_shift_box_select, 0);
+    if (modern && latched) g_modern_box_shift = 1;
+    return modern && latched;
+}
+
+/* A Shift box selection adds the boxed units, unless every one of them is
+ * selected already: then it removes them. The lifted hooks walk the box twice,
+ * a dry run that only counts (ra2_modern_box_object) and then the real one. */
+enum { MODERN_BOX_SELECT, MODERN_BOX_COUNT, MODERN_BOX_DESELECT };
+
+int ra2_modern_shift_box_begin(void) {
+    int shift = g_modern_box_shift || InterlockedCompareExchange(&g_modern_shift_box_select, 0, 0);
+    if (!InterlockedCompareExchange(&g_modern_controls, 0, 0) || !shift) return 0;
+    g_modern_box_mode = MODERN_BOX_COUNT;
+    g_modern_box_objects = g_modern_box_unselected = 0;
+    return 1;
+}
+
+void ra2_modern_shift_box_decide(void) {
+    g_modern_box_mode = g_modern_box_objects && !g_modern_box_unselected
+        ? MODERN_BOX_DESELECT : MODERN_BOX_SELECT;
+}
+
+void ra2_modern_shift_box_end(void) {
+    g_modern_box_mode = MODERN_BOX_SELECT;
+    g_modern_box_shift = 0;
+}
+
+/* For each selectable object in the box: 0 skip it, 1 Select() it as the game
+ * would, 2 Deselect() it. */
+int ra2_modern_box_object(int selected) {
+    switch (g_modern_box_mode) {
+    case MODERN_BOX_COUNT:
+        g_modern_box_objects++;
+        if (!selected) g_modern_box_unselected++;
+        return 0;
+    case MODERN_BOX_DESELECT:
+        return selected ? 2 : 0;
+    default:
+        return 1;
+    }
+}
+
+int ra2_modern_consume_right_drag_release(void) {
+    int consume = g_modern_suppress_right_deselect;
+    g_modern_suppress_right_deselect = 0;
+    return consume;
 }
