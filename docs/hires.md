@@ -14,6 +14,13 @@ mission, opens at the INI's size. On the virtual display any size is accepted
 picture at its own aspect: a 16:9 game fills a 16:9 window or screen, the 4:3
 menus are letterboxed in it.
 
+The menus a battle opens (the pause menu, and its load, save and controls
+screens) stay at the game's size, laid out for its height: the art at the
+left, as wide as makes 4:3 with the 168-pixel sidebar, and the sidebar at the
+right edge, with black between them on a wider screen. While one is open the
+presenter leaves that band out, so the menu is 4:3 and letterboxed like the
+main menu, and a click right of the cut is moved back across it.
+
 ## What works
 
 The playtest suite checks each size in a skirmish, and 1080p in a campaign

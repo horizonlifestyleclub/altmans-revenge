@@ -130,6 +130,7 @@ static int g_modern_suppress_right_deselect; /* a pan release must not clear sel
 static POINT g_modern_right_origin;      /* screen point of the right press */
 static volatile LONG g_gw = 800, g_gh = 600;   /* the game's picture, last frame */
 static RECT g_dst;                       /* where it is drawn in the client area */
+static int g_cut_at, g_cut_w;            /* a menu's black band left out, in game x (cut_menu_band) */
 static int g_fullscreen;
 static RECT g_windowed;                  /* the window's rect before fullscreen */
 static HWND g_capture_target;            /* the game window a held button went to */
@@ -285,6 +286,7 @@ static POINT to_game(int x, int y) {
     if (p.y < 0) p.y = 0;
     if (p.x >= g_gw) p.x = g_gw - 1;
     if (p.y >= g_gh) p.y = g_gh - 1;
+    if (g_cut_w && p.x >= g_cut_at) p.x += g_cut_w;
     return p;
 }
 
@@ -353,6 +355,40 @@ static HWND target_at(POINT gp, POINT* local) {
 done:
     if (was) g_set_dpi_ctx(was);
     return t;
+}
+
+/* The game's menus in a battle (the pause menu and the screens it opens) are
+ * laid out for the screen's height: the art at the left, as wide as makes a
+ * 4:3 picture with the 168-pixel sidebar, and the sidebar at the right edge.
+ * On a wider screen the band between them is black (issue 12). The presenter
+ * leaves that band out, so the menu shows as 4:3 with bars like the main
+ * menu, and a click right of the cut moves back across it. */
+#define SIDEBAR_W 168
+
+static BOOL CALLBACK find_dialog(HWND h, LPARAM found) {
+    char cls[8] = "";
+    if (h == g_input_hwnd || !IsWindowVisible(h)) return TRUE;
+    GetClassNameA(h, cls, sizeof cls);
+    if (strcmp(cls, "#32770")) return TRUE;
+    *(int*)found = 1;
+    return FALSE;
+}
+
+/* Cut the band out of a w x h picture at scale s (2 for the HD picture) in
+ * place; the picture's new width. */
+static int cut_menu_band(uint32_t* f, int w, int h, int s) {
+    int keep = h * 4 / 3, found = 0;
+    if (w > keep && g_input_hwnd)      /* the battle's menus are children of the main window */
+        EnumChildWindows(g_input_hwnd, find_dialog, (LPARAM)&found);
+    if (!found) { g_cut_w = 0; return w; }
+    g_cut_at = keep - SIDEBAR_W, g_cut_w = w - keep;
+    for (int y = 0; y < h * s; y++) {
+        uint32_t* row = f + (size_t)y * keep * s;
+        const uint32_t* src = f + (size_t)y * w * s;
+        memmove(row, src, (size_t)g_cut_at * s * 4);
+        memmove(row + g_cut_at * s, src + (w - SIDEBAR_W) * s, (size_t)SIDEBAR_W * s * 4);
+    }
+    return keep;
 }
 
 static void forward_mouse(UINT m, WPARAM w, int x, int y) {
@@ -779,6 +815,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
         if (hd < 0) {                              /* locked: the last picture stays */
             Sleep(1);
         } else if (hd) {                           /* the picture at 2x */
+            gw = cut_menu_band(frame, gw, gh, 2);
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
@@ -786,6 +823,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else if (host_frame(frame, 4096, 2160, &gw, &gh)) {
+            gw = cut_menu_band(frame, gw, gh, 1);
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
