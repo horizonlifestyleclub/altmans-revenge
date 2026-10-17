@@ -375,11 +375,25 @@ static BOOL CALLBACK find_dialog(HWND h, LPARAM found) {
 }
 
 /* Cut the band out of a w x h picture at scale s (2 for the HD picture) in
- * place; the picture's new width. */
+ * place; the picture's new width. Between one menu and the next (the pause
+ * menu opening a screen) no dialog is up for a few frames; the cut stays for
+ * up to a second after the last one while the band is still black, so the
+ * menu doesn't flash full width. */
+static int band_black(const uint32_t* f, int w, int h, int s, int keep) {
+    for (int y = 0; y < h * s; y++)
+        for (int x = (keep - SIDEBAR_W) * s; x < (w - SIDEBAR_W) * s; x++)
+            if (f[(size_t)y * w * s + x] & 0xFFFFFF) return 0;
+    return 1;
+}
+
 static int cut_menu_band(uint32_t* f, int w, int h, int s) {
+    static DWORD last_dialog;
     int keep = h * 4 / 3, found = 0;
     if (w > keep && g_input_hwnd)      /* the battle's menus are children of the main window */
         EnumChildWindows(g_input_hwnd, find_dialog, (LPARAM)&found);
+    if (found) last_dialog = GetTickCount();
+    else if (w > keep && g_cut_w && GetTickCount() - last_dialog < 1000)
+        found = band_black(f, w, h, s, keep);
     if (!found) { g_cut_w = 0; return w; }
     g_cut_at = keep - SIDEBAR_W, g_cut_w = w - keep;
     for (int y = 0; y < h * s; y++) {
