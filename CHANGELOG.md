@@ -5,6 +5,15 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-10-19
+
+### Fixed
+- `build.cmd` asks vswhere for an install with the C++ tools, as `setup.ps1`
+  does. Before, it took the newest Visual Studio product of any kind, which
+  could be SQL Server Management Studio or a Visual Studio without C++, and
+  Setup stopped at "Compiling" (#19, found and fixed by @andersbusk). It
+  names VS 2019 or later, which is what `setup.ps1` accepts.
+
 ## [0.1.0-alpha.1] - 2026-10-19
 
 The first tagged build, for the installer.
