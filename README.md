@@ -133,4 +133,4 @@ you.
 
 MIT for this repository's own code ([LICENSE](LICENSE)). Red Alert 2 and
 Yuri's Revenge are © Electronic Arts; none of their files, and nothing
-generated from them, is in this repository.
+generated from them, is in this repository ([NOTICE.md](NOTICE.md)).
