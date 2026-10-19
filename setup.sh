@@ -143,6 +143,8 @@ else
     fi
   fi
   PY=$ROOT/.venv/bin/python
+  "$PY" -c 'import pefile, capstone' 2>/dev/null ||
+    fail "Python could not make its venv for pefile and capstone: install python3-venv (Debian, Ubuntu) or uv, then run setup again."
 fi
 
 # The toolkit: PCRECOMP, else ../pcrecomp, else ../tools (where older setups
