@@ -5,7 +5,18 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] - 2026-10-19
+
+The first tagged build, for the installer.
+
 ### Added
+- **The installer** (`RA2-Recomp-Installer`, on the releases for Windows,
+  Linux and macOS): finds the game in Steam or the EA App, fetches this repo
+  and pcrecomp, runs the setup with a progress bar and leaves Play buttons.
+  It is [recomp-launcher](https://github.com/sp00nznet/recomp-launcher) with
+  `launcher/launcher.json`, built by `.github/workflows/installer.yml`.
+  `setup.sh` numbers its steps (`[n/N]`) as `Setup.cmd` does, and stops at a
+  Python venv it could not make, naming `python3-venv`.
 - **Mods**: a mod is a folder in `mods/yr/` or `mods/ra2/`, laid over the
   game's folder without changing it (its files read first, what the game
   writes going into it, its maps and `expandmd*.mix` listed with the game's).
