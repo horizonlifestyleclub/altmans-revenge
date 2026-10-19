@@ -39,7 +39,10 @@ done
 MAC=0; [ "$(uname)" = Darwin ] && MAC=1
 
 say()  { printf '%s\n' "$*"; }
-step() { printf '\n\033[36m%s\033[0m\n' "$*"; }
+# "[n/N] what": the installer's progress bar reads these, as Setup.cmd's.
+# The tools, finding the game when game/ isn't there yet, and four per game.
+STEP=0; STEPS=$((1 + 4 * $(set -- $GAMES; echo $#))); [ -e game ] || STEPS=$((STEPS + 1))
+step() { STEP=$((STEP + 1)); printf '\n\033[36m[%d/%d] %s\033[0m\n' "$STEP" "$STEPS" "$*"; }
 fail() { printf '\n\033[31mSetup stopped: %s\033[0m\n' "$*" >&2; exit 1; }
 # confirm: always asks (a licence); ask: --yes answers it
 confirm() { read -r -p "$1 [Y/n] " r; [[ ! $r =~ ^[nN] ]]; }

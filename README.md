@@ -141,6 +141,23 @@ downloaded for you. The lifted C is generated on your machine from your copy
 and is never distributed. On Linux, see [Linux, native](#linux-native); on
 macOS, [macOS, native](#macos-native).
 
+### The installer
+
+The easiest way, from v0.1.0 on: download the installer for your system from
+the [releases](https://github.com/sp00nznet/redalert2-recomp/releases)
+(`RA2-Recomp-Installer-windows-x64.exe`, `-linux-x64.tar.gz` or
+`-macos-arm64.zip`) and open it. It finds your game in Steam or the EA App
+(or you point it at the folder), and **Build my recomp** fetches this
+repository and the pcrecomp toolkit and runs the setup below for you, with a
+progress bar. When it's done it has a **Play** button for each game and can
+put shortcuts on your desktop. Nothing from the game is in it or downloaded
+by it.
+
+The installers aren't signed yet: on Windows, SmartScreen asks first (**More
+info**, then **Run anyway**); on a Mac, right-click it and pick **Open**. It is
+[recomp-launcher](https://github.com/sp00nznet/recomp-launcher) with this
+repository's [`launcher/launcher.json`](launcher/launcher.json).
+
 ### Quick start
 
 1. Download this repository (the green **Code** button, then **Download ZIP**)
