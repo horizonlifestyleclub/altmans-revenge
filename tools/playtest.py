@@ -256,7 +256,10 @@ case('skirmish-start', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 
 if NATIVE and TARGET == 'gamemd':
     case('skirmish-dropdown', SP().press(SINGLE, 'Skirmish', SKIRMISH).uclick(*combo_point(SKIRMISH, 1294), after=3)
          .uclick(*combo_point(SKIRMISH, 1294, item=1), after=2).press(SKIRMISH, 'StartGame').waitlog(INGAME), 150,
-         ingame=True, log={'Assigning Starting Points for house 2': 1})
+         ingame=True, log={'Assigning Starting Points for house 2': 1},
+         # a map with room for a third player: the list starts with the 2-player maps
+         # (index 0 is The Alamo), whatever the player's INI saved last; 30 is Arena
+         ini={'Skirmish': {'ScenIndex': 30}})
 # Orders by mouse: select and deploy the MCV, band-select everything on
 # screen, then Ctrl+click (force-fire) at two of the tanks. Written to put
 # explosions and debris (voxel animations) under the camera; it has not yet
