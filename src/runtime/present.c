@@ -379,11 +379,23 @@ static BOOL CALLBACK find_dialog(HWND h, LPARAM found) {
  * menu opening a screen) no dialog is up for a few frames; the cut stays for
  * up to a second after the last one while the band is still black, so the
  * menu doesn't flash full width. */
-static int band_black(const uint32_t* f, int w, int h, int s, int keep) {
+static int cols_black(const uint32_t* f, int w, int h, int s, int x0, int x1) {
     for (int y = 0; y < h * s; y++)
-        for (int x = (keep - SIDEBAR_W) * s; x < (w - SIDEBAR_W) * s; x++)
+        for (int x = x0 * s; x < x1 * s; x++)
             if (f[(size_t)y * w * s + x] & 0xFFFFFF) return 0;
     return 1;
+}
+
+static int band_black(const uint32_t* f, int w, int h, int s, int keep) {
+    return cols_black(f, w, h, s, keep - SIDEBAR_W, w - SIDEBAR_W);
+}
+
+/* A battle's menu starts at the left edge, its art there in both games. Red
+ * Alert 2 also shows its main menus at the game's size, an 800-wide dialog
+ * centred with black at the left edge: cutting those moved them off centre,
+ * and where one reached past the cut (1920x1080 and below) sliced it. */
+static int menu_at_left_edge(const uint32_t* f, int w, int h, int s) {
+    return !cols_black(f, w, h, s, 0, 32);
 }
 
 static int cut_menu_band(uint32_t* f, int w, int h, int s) {
@@ -391,7 +403,7 @@ static int cut_menu_band(uint32_t* f, int w, int h, int s) {
     int keep = h * 4 / 3, found = 0;
     if (w > keep && g_input_hwnd)      /* the battle's menus are children of the main window */
         EnumChildWindows(g_input_hwnd, find_dialog, (LPARAM)&found);
-    if (found) last_dialog = GetTickCount();
+    if (found) found = menu_at_left_edge(f, w, h, s), last_dialog = GetTickCount();
     else if (w > keep && g_cut_w && GetTickCount() - last_dialog < 1000)
         found = band_black(f, w, h, s, keep);
     if (!found) { g_cut_w = 0; return w; }
@@ -521,8 +533,13 @@ static void settings_save(HWND hw) {
 #endif
 #define OPT_W ((volatile int32_t*)(uintptr_t)(GAME_OPTIONS + OPT_W_AT))
 #define OPT_H ((volatile int32_t*)(uintptr_t)(GAME_OPTIONS + OPT_W_AT + 4))
+/* 21:9 too (1720x720, 2560x1080, 3440x1440, 3840x1600): an ultrawide screen at
+ * its own size, not a 16:9 game with bars. 1720x720 is half of 3440x1440, so it
+ * scales by a whole 2x there and is small enough for HD vehicles. Nothing wider
+ * than the presenter's 4096x2160 frame, so no 5120x2160 or 32:9. */
 static const int k_res[][2] = { { 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1366, 768 }, { 1600, 900 },
-                                { 1920, 1080 }, { 2560, 1440 }, { 3840, 2160 } };
+                                { 1720, 720 }, { 1920, 1080 }, { 2560, 1080 }, { 2560, 1440 },
+                                { 3440, 1440 }, { 3840, 1600 }, { 3840, 2160 } };
 #define NRES ((int)(sizeof k_res / sizeof k_res[0]))
 
 static int opt_ok(void) { return *OPT_W >= 320 && *OPT_W <= 8192 && *OPT_H >= 200 && *OPT_H <= 8192; }

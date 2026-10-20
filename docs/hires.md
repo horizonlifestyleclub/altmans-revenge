@@ -21,6 +21,13 @@ right edge, with black between them on a wider screen. While one is open the
 presenter leaves that band out, so the menu is 4:3 and letterboxed like the
 main menu, and a click right of the cut is moved back across it.
 
+Red Alert 2 starts in the INI's mode, so its main menus are at the game's
+size too: an 800-wide dialog centred, with black at the left edge. The band
+is cut only from a menu whose art starts at the left edge, as a battle's
+menus do in both games. Cut there, a centred menu moved off centre, and where
+it reached past the cut (`height * 4 / 3 - 168`: 1272 at 1920x1080, 792 at
+1280x720) it was sliced.
+
 ## What works
 
 The playtest suite checks each size in a skirmish, and 1080p in a campaign
@@ -29,9 +36,17 @@ The playtest suite checks each size in a skirmish, and 1080p in a campaign
 | Resolution | Skirmish | Campaign | Notes |
 |---|---|---|---|
 | 1280x720 | pass | | |
+| 1720x720 | pass | | 21:9, half of 3440x1440 (a whole 2x there, and small enough for HD vehicles); view 1552x688 |
 | 1920x1080 | pass | pass (Allied, first mission) | sidebar of 16 cameo slots; view 1752x1048 |
+| 2560x1080 | pass | | 21:9; view 2392x1048 |
 | 2560x1440 | pass | | |
+| 3440x1440 | pass | | 21:9; view 3272x1408 |
+| 3840x1600 | pass | | 21:9; view 3672x1568 |
 | 3840x2160 | pass | | sidebar rows capped at 30 (below) |
+
+The four 21:9 sizes pass in Red Alert 2 as well (`RA2_TARGET=game`). Nothing
+wider than the presenter's 4096x2160 frame is offered, so no 5120x2160 or
+32:9.
 
 A larger resolution shows more of the battlefield, not a bigger picture: the
 art stays at its native size, and the presenter's sharp scaling is what makes
