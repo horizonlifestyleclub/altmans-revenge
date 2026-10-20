@@ -19,6 +19,7 @@
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <mmsystem.h>
 #include <windowsx.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -760,6 +761,7 @@ static void frame_stats(LARGE_INTEGER t0, LARGE_INTEGER t1, LARGE_INTEGER t2) {
 static DWORD WINAPI present_thread(LPVOID arg) {
     static uint32_t frame[4096 * 2160];
     int fullscreen = (int)(intptr_t)arg;
+    timeBeginPeriod(1);              /* timeGetTime and Sleep(1) below in milliseconds */
     /* Per-monitor DPI aware, this thread only. Unaware, Windows stretched the
      * window's pixels by the display scale (2x at 200%) after our shader had
      * scaled them, and sharp-bilinear came out blurred. The game's own windows
@@ -834,11 +836,15 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             static long seen = -1;
             static DWORD last;
             long n = host_frame_count();
-            DWORD since = GetTickCount() - last;
+            /* timeGetTime, not GetTickCount: that moves in 15 and 16 ms steps,
+             * so after a 15 one "since < 16" held the picture to the next step,
+             * 31 ms, and the 33 ms of a menu became 47 (21 pictures a second,
+             * not 30). This thread's timeBeginPeriod(1) makes it milliseconds. */
+            DWORD since = timeGetTime() - last;
             /* a battle copies into its frame surface more than once a frame:
              * at most one picture per 16 ms, a display's refresh */
             if ((n == seen && since < 33) || since < 16) { Sleep(1); continue; }
-            seen = n, last = GetTickCount();
+            seen = n, last = timeGetTime();
         }
         LARGE_INTEGER t0, t1, t2;
         QueryPerformanceCounter(&t0);

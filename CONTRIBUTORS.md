@@ -34,3 +34,14 @@ it play there:
   off, so the game's dialog procedures quietly ran its original machine code
   instead of the lifted C, and that Rosetta reports an instruction fetch as a
   read. Without both fixes nothing runs under Wine, on a Mac or on Linux.
+
+### [@andersbusk](https://github.com/andersbusk)
+**Diagnosed and patched, each with its own tests:**
+
+- **The battle hang** (#20): sampled the stuck thread down to the line
+  clipper at 0x00775620, read its locals out of the hung process, and wrote
+  the round cap for both games.
+- **21:9 sizes and centred menus** (#21): the ultrawide resolutions, and the
+  menu band cut that sliced Red Alert 2's main menus at widescreen sizes.
+- **The presenter's timer** (#22): measured `GetTickCount`'s 15-16 ms steps
+  holding menus to 21 pictures a second, not 30.
