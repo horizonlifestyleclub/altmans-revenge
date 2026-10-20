@@ -420,6 +420,28 @@ def queue_five_patches(target):
     return {site: after_production_event() for site in t['sites']}
 
 
+# The Cohen-Sutherland line clipper (game 0x00775620, gamemd 0x007BC2B0) clips
+# the outside point to an edge, recomputing the other coordinate from the point
+# itself, and loops until both outcodes are clear or share a bit. A line through
+# a rect corner can leave the point a rounding error outside one edge, then the
+# other, forever: one core at 100 % and the sound looping (issue #20). Native
+# doubles are what the x87 computes too at the game's 53-bit precision, so this
+# is the game's own hang. A correct clip ends within 8 rounds; past 64 the line
+# is rejected, as one wholly outside is, and goes undrawn for that frame.
+CLIP_LINE_SITES = {   # loop head (test edx, edx), accept path, reject path
+    'gamemd': (0x007BC3CE, 0x007BC529, 0x007BC56C),
+    'game': (0x0077573E, 0x00775899, 0x007758DC),
+}
+
+
+def clip_line_patches(target):
+    head, accept, reject = CLIP_LINE_SITES[target]
+    reset = '{ extern unsigned ra2_clip_rounds; ra2_clip_rounds = 0; } /* line clip cap (issue #20) */'
+    return {head: '{ extern unsigned ra2_clip_rounds; if (++ra2_clip_rounds > 64) goto L_%08X; } '
+                  '/* line clip cap (issue #20) */' % reject,
+            accept: reset, reject: reset}
+
+
 def apply_patches(body, patches):
     """Add each patch's C after the line that lifts its instruction."""
     for va, c in patches.items():
@@ -454,7 +476,8 @@ def targets():
                        run_seeds=RUN_SEEDS, hooks=HOOKS, exe_name='gamemd.exe', ini_name='RA2MD.INI',
                        title="Yuri's Revenge", game_frame=0x00A8ED84, stamp=0x3BDF544E,
                        patches=lambda code, cs: {**sidebar_rows_patches(code, cs), **HD_VOXEL_PATCHES,
-                                                 **modern_controls_patches('gamemd'), **queue_five_patches('gamemd')}),
+                                                 **modern_controls_patches('gamemd'), **queue_five_patches('gamemd'),
+                                                 **clip_line_patches('gamemd')}),
         'game': dict(exe=os.path.join(_HERE, 'game', 'game.exe'),
                      catalog=os.path.join(_HERE, 'work', 'game', 'functions.json'),
                      seeds=os.path.join(_HERE, 'work', 'game', 'rtti_seeds.json'),
@@ -468,7 +491,8 @@ def targets():
                      patches=lambda code, cs: {**sidebar_rows_patches(code, cs, 0x0067B000, 0x00683000,
                                                                      (0x0083962C, 0x00ABCD64)),
                                                **HD_VOXEL_PATCHES_GAME,
-                                               **modern_controls_patches('game'), **queue_five_patches('game')}),
+                                               **modern_controls_patches('game'), **queue_five_patches('game'),
+                                               **clip_line_patches('game')}),
     }
 
 

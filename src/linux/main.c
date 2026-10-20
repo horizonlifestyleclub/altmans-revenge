@@ -40,6 +40,7 @@ static int g_debuglog, g_headless, g_fullscreen = -1;   /* -1: as ra2.ini says *
 static const char *g_scale;
 static const char *g_mod;              /* --mod NAME */
 static unsigned g_watchdog_s;
+unsigned ra2_clip_rounds;              /* the line clipper's round cap (run_lift.py clip_line_patches) */
 
 /* ---- what the lift calls into ---------------------------------------------
  * run_lift.py PATCHES and HOOKS. */

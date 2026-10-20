@@ -37,6 +37,7 @@ extern const uint32_t ra2_entry_va;    /* recomp_dispatch.c */
 static int g_last_dialog;             /* resource ID of the last RT_DIALOG looked up */
 
 static DWORD g_watchdog_s;
+unsigned ra2_clip_rounds;           /* the line clipper's round cap (run_lift.py clip_line_patches) */
 static int   g_original;            /* --original: run the shipping code (oracle.c) */
 static int   g_headless;
 /* How the game is shown. The presenter (present.c) is the default: the display
