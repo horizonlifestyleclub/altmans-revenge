@@ -146,7 +146,9 @@ nearest and integer scaling, F11 (or Alt+Enter) is fullscreen, and `ra2.ini`
 beside the program remembers them (`--scale` on the command line). F10 opens
 the settings menu over the picture: scaling, the bars, fullscreen, HD
 vehicles (off until you turn them on), the game's resolution and the mod. It
-has no Controls entry: Modern controls are the Windows presenter's.
+has no Controls entry: Modern controls are the Windows presenter's. Its
+resolution list has your display's own size, and the game's own Options
+screen lists the large modes too ([hires.md](hires.md)).
 `--headless`, `--record`, `--mute`, `--hd-voxels`, `--seed` and the scripted
 input are the Windows host's; `tools/playtest.py` runs the native build when
 it is there. LAN games speak IPXEmu's protocol (IPX over UDP), the one the

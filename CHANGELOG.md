@@ -12,7 +12,11 @@ versions follow [SemVer](https://semver.org/).
   and remembered in `ra2.ini`. No Controls entry: Modern controls are the
   Windows presenter's. Needs a current pcrecomp; `setup.sh` offers to update.
 - 21:9 sizes in F10's Game resolution: 1720x720, 2560x1080, 3440x1440 and
-  3840x1600 (#21, by @andersbusk).
+  3840x1600 (#21, by @andersbusk). And 16:10, 1680x1050 and 2560x1600.
+- On Linux and macOS the game's own Options screen lists 1440p, 16:10, the
+  ultrawides and 4K, and the display's own size; F10 offers that size too
+  (#23). The host adds the game's `[Video] AllowHiResModes=yes` when it is
+  missing; without it the game lists nothing past 1024x768.
 
 ### Fixed
 - A big battle could freeze the game with its sound looping: the line

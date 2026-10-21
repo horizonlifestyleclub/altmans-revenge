@@ -40,13 +40,22 @@ The playtest suite checks each size in a skirmish, and 1080p in a campaign
 | 1920x1080 | pass | pass (Allied, first mission) | sidebar of 16 cameo slots; view 1752x1048 |
 | 2560x1080 | pass | | 21:9; view 2392x1048 |
 | 2560x1440 | pass | | |
+| 2560x1600 | pass | | 16:10, most Macs' shape (with 1680x1050 in F10's list) |
 | 3440x1440 | pass | | 21:9; view 3272x1408 |
 | 3840x1600 | pass | | 21:9; view 3672x1568 |
 | 3840x2160 | pass | | sidebar rows capped at 30 (below) |
 
-The four 21:9 sizes pass in Red Alert 2 as well (`RA2_TARGET=game`). Nothing
-wider than the presenter's 4096x2160 frame is offered, so no 5120x2160 or
-32:9.
+The four 21:9 sizes and 2560x1600 pass in Red Alert 2 as well
+(`RA2_TARGET=game`). Nothing wider than the presenter's 4096x2160 frame is
+offered, so no 5120x2160 or 32:9.
+
+The game's own Options screen lists only 640x480, 800x600 and 1024x768 unless
+`[Video] AllowHiResModes=yes` is in its INI; then it lists every mode the
+display offers. On Linux and macOS the host adds that key when it isn't there
+(a `no` you set stays), and win32hle offers the sizes above up to 4K and the
+display's own size (its logical size on a Retina Mac). On Windows the modes
+are your display's, which can be larger than the presenter shows, so the key
+is left to you and F10 is the way past 1024x768.
 
 A larger resolution shows more of the battlefield, not a bigger picture: the
 art stays at its native size, and the presenter's sharp scaling is what makes

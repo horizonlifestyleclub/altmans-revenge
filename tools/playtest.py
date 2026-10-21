@@ -343,7 +343,7 @@ def set_ini(text, section, key, value):
 
 # Hi-res and widescreen: the game's own resolution setting, the in-game
 # picture at that size, in a skirmish and a campaign (docs/hires.md).
-RES = [(1280, 720), (1720, 720), (1920, 1080), (2560, 1080), (2560, 1440), (3440, 1440), (3840, 1600),
+RES = [(1280, 720), (1720, 720), (1920, 1080), (2560, 1080), (2560, 1440), (2560, 1600), (3440, 1440), (3840, 1600),
        (3840, 2160)]
 for w, h in RES:
     video = {'Video': {'ScreenWidth': w, 'ScreenHeight': h}}

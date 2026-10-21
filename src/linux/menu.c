@@ -24,19 +24,20 @@
 #include "mods.h"
 
 #define MAX_MENU_MODS 64
-enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_HDVOX = 500, ID_MOD = 600 };
+enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_DISPLAY = 499, ID_HDVOX = 500, ID_MOD = 600 };
 
 static const char *const k_scale[] = { "sharp", "smooth", "crt", "nearest", "integer" };
 static const char *const k_scale_label[] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
-static hle_menu_item_t g_main[8], g_scale[5], g_bars[2], g_res[NRES], g_mods[MAX_MENU_MODS + 1];
-static char g_res_label[NRES][16], g_mod_names[MAX_MENU_MODS][128];
-static int g_nmods;
+static hle_menu_item_t g_main[8], g_scale[5], g_bars[2], g_res[NRES + 1], g_mods[MAX_MENU_MODS + 1];
+static char g_res_label[NRES + 1][40], g_mod_names[MAX_MENU_MODS][128];
+static int g_nmods, g_display_w, g_display_h;
 static void (*g_save)(void);
 static int (*g_next_key)(int sdl_scancode, int down);   /* mods.c's F9 */
 
-/* key=val in [sec] of an INI file, in place: its line replaced, else added at
- * the section's end, else the section added at the end. */
-static void ini_set(const char *path, const char *sec, const char *key, const char *val) {
+/* key=val in [sec] of an INI file, in place: its line replaced (with keep,
+ * left as it is), else added at the section's end, else the section added at
+ * the end. */
+static void ini_set(const char *path, const char *sec, const char *key, const char *val, int keep) {
     FILE *f = fopen(path, "rb");
     char *in = NULL;
     size_t n = 0;
@@ -60,8 +61,10 @@ static void ini_set(const char *path, const char *sec, const char *key, const ch
             if (in_sec && !done) fprintf(o, "%s=%s\r\n", key, val), done = 1;
             in_sec = !strncasecmp(p + 1, sec, sl) && p[1 + sl] == ']';
         }
-        if (in_sec && !done && !strncasecmp(p, key, kl) && p[kl] == '=') fprintf(o, "%s=%s\r\n", key, val), done = 1;
-        else fwrite(p, 1, len, o);
+        if (in_sec && !done && !strncasecmp(p, key, kl) && p[kl] == '=') {
+            if (keep) fwrite(p, 1, len, o); else fprintf(o, "%s=%s\r\n", key, val);
+            done = 1;
+        } else fwrite(p, 1, len, o);
         p += len;
     }
     if (!done) {
@@ -76,8 +79,8 @@ static void ini_set(const char *path, const char *sec, const char *key, const ch
 static void set_game_resolution(int w, int h) {
     char path[PATH_MAX], v[16];
     hle_host_path_for_write(RA2_INI_NAME, path, sizeof path, 1);   /* the game runs in its folder; a mod's, over it */
-    snprintf(v, sizeof v, "%d", w), ini_set(path, "Video", "ScreenWidth", v);
-    snprintf(v, sizeof v, "%d", h), ini_set(path, "Video", "ScreenHeight", v);
+    snprintf(v, sizeof v, "%d", w), ini_set(path, "Video", "ScreenWidth", v, 0);
+    snprintf(v, sizeof v, "%d", h), ini_set(path, "Video", "ScreenHeight", v, 0);
     if (res_plausible((int)MEM32(RA2_OPT_W_VA), (int)MEM32(RA2_OPT_H_VA)))
         MEM32(RA2_OPT_W_VA) = (uint32_t)w, MEM32(RA2_OPT_H_VA) = (uint32_t)h;
     fprintf(stderr, "[menu] game resolution %dx%d (the next game opens at it)\n", w, h);
@@ -102,6 +105,7 @@ static void chosen(int id) {
     else if (id == ID_FULL) { int full; hle_screen_settings(NULL, &full); hle_screen_fullscreen(!full); return; }   /* saves, as F11 */
     else if (id == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;   /* takes effect next frame */
     else if (id >= ID_RES && id < ID_RES + NRES) { set_game_resolution(k_res[id - ID_RES][0], k_res[id - ID_RES][1]); return; }
+    else if (id == ID_DISPLAY) { set_game_resolution(g_display_w, g_display_h); return; }
     else if (id >= ID_MOD && id <= ID_MOD + g_nmods) { switch_mod(id == ID_MOD ? "" : g_mod_names[id - ID_MOD - 1]); return; }
     if (g_save) g_save();
 }
@@ -112,10 +116,22 @@ static void open_menu(void) {
     for (int i = 0; i < 5; i++) g_scale[i] = (hle_menu_item_t){ k_scale_label[i], NULL, ID_SCALE + i, !strcmp(scale, k_scale[i]), NULL, 0 };
     g_bars[0] = (hle_menu_item_t){ "Blurred", NULL, ID_BARS + 1, bars, NULL, 0 };
     g_bars[1] = (hle_menu_item_t){ "Black", NULL, ID_BARS, !bars, NULL, 0 };
-    int w = (int)MEM32(RA2_OPT_W_VA), h = (int)MEM32(RA2_OPT_H_VA);
+    int w = (int)MEM32(RA2_OPT_W_VA), h = (int)MEM32(RA2_OPT_H_VA), nr = 0, dw = 0, dh = 0;
+    /* this display's own size first, when it isn't one of the list's (a
+     * MacBook's 1512 x 982); no larger than 4K, the largest tested */
+    if (hle_screen_desktop(&dw, &dh) && dw >= 800 && dh >= 600 && dw <= 3840 && dh <= 2160) {
+        int listed = 0;
+        for (int i = 0; i < NRES; i++) listed |= dw == k_res[i][0] && dh == k_res[i][1];
+        if (!listed) {
+            g_display_w = dw, g_display_h = dh;
+            snprintf(g_res_label[NRES], sizeof g_res_label[NRES], "%d x %d (this display)", dw, dh);
+            g_res[nr++] = (hle_menu_item_t){ g_res_label[NRES], NULL, ID_DISPLAY, w == dw && h == dh, NULL, 0 };
+        }
+    }
     for (int i = 0; i < NRES; i++) {
-        snprintf(g_res_label[i], sizeof g_res_label[i], "%d x %d", k_res[i][0], k_res[i][1]);
-        g_res[i] = (hle_menu_item_t){ g_res_label[i], NULL, ID_RES + i, w == k_res[i][0] && h == k_res[i][1], NULL, 0 };
+        snprintf(g_res_label[i], sizeof g_res_label[i], "%d x %d%s", k_res[i][0], k_res[i][1],
+                 dw == k_res[i][0] && dh == k_res[i][1] ? " (this display)" : "");
+        g_res[nr++] = (hle_menu_item_t){ g_res_label[i], NULL, ID_RES + i, w == k_res[i][0] && h == k_res[i][1], NULL, 0 };
     }
     g_nmods = mods_list(g_mod_names, MAX_MENU_MODS);
     g_mods[nm++] = (hle_menu_item_t){ "None (the game as it shipped)", NULL, ID_MOD, !mods_active()[0], NULL, 0 };
@@ -127,7 +143,7 @@ static void open_menu(void) {
     g_main[n++] = (hle_menu_item_t){ "Fullscreen", "F11", ID_FULL, full, NULL, 0 };
     g_main[n++] = (hle_menu_item_t){ "HD vehicles (voxels at 2x)", NULL, ID_HDVOX, ra2_vox_hd_show, NULL, 0 };
     g_main[n++] = (hle_menu_item_t){ NULL, NULL, 0, 0, NULL, 0 };
-    g_main[n++] = (hle_menu_item_t){ "Game resolution (next game)", NULL, 0, 0, g_res, NRES };
+    g_main[n++] = (hle_menu_item_t){ "Game resolution (next game)", NULL, 0, 0, g_res, nr };
     g_main[n++] = (hle_menu_item_t){ "Mod (restarts the game)", NULL, 0, 0, g_mods, nm };
     hle_screen_menu(g_main, n, chosen);
 }
@@ -139,6 +155,15 @@ static int on_key(int scancode, int down) {
 }
 
 void menu_start(void (*save)(void)) {
+    /* The game's own Options screen lists only 640, 800 and 1024 wide unless
+     * [Video] AllowHiResModes is on; then every mode DirectDraw offers, which
+     * win32hle caps at 4K (issue #23). A player's own setting stays. Windows
+     * is left alone: its DirectDraw is the display's, and can offer more than
+     * the presenter shows. */
+    char path[PATH_MAX];
+    hle_host_path_for_write(RA2_INI_NAME, path, sizeof path, 1);
+    ini_set(path, "Video", "AllowHiResModes", "yes", 1);
+    fprintf(stderr, "[menu] F10 for the settings; %s has AllowHiResModes\n", path);
     g_save = save;
     g_next_key = hle_screen_key_hook;
     hle_screen_key_hook = on_key;
