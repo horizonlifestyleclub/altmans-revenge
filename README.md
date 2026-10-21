@@ -75,8 +75,9 @@ lifts and builds both games; a rerun skips finished steps. Building by hand,
 each platform's details, Wine and the command line are in
 **[docs/building.md](docs/building.md)**.
 
-In the game: F10 settings (Windows), F11 fullscreen, F12 scaling, F9 mods at
-the main menu (Linux and macOS).
+In the game: F10 settings, F11 fullscreen, F12 scaling, F9 mods at the main
+menu (Linux and macOS). On a Mac hold fn for the F keys, and use Option+Return
+for fullscreen.
 
 ## Status
 

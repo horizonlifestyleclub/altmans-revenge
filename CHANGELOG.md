@@ -5,6 +5,24 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- The F10 settings menu on Linux and macOS: scaling, the bars, fullscreen,
+  HD vehicles, the game's resolution and the mod, drawn over the picture
+  (pcrecomp's `hle_screen_menu`). HD vehicles are off there until turned on,
+  and remembered in `ra2.ini`. No Controls entry: Modern controls are the
+  Windows presenter's. Needs a current pcrecomp; `setup.sh` offers to update.
+- 21:9 sizes in F10's Game resolution: 1720x720, 2560x1080, 3440x1440 and
+  3840x1600 (#21, by @andersbusk).
+
+### Fixed
+- A big battle could freeze the game with its sound looping: the line
+  clipper looped forever on a line through a corner of its rectangle. It
+  gives up after 64 rounds, in both games (#20, found by @andersbusk).
+- Red Alert 2's main menus were sliced or off centre at widescreen sizes
+  (#21, by @andersbusk).
+- Menus showed 21 pictures a second, not 30: the presenter's timer moved in
+  15-16 ms steps (#22, by @andersbusk).
+
 ## [0.1.0-alpha.2] - 2026-10-19
 
 ### Fixed

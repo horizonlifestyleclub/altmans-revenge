@@ -520,30 +520,10 @@ static void settings_save(HWND hw) {
     }
 }
 
-/* The game's own resolution: the INI's [Video] for the next start, and the
- * options in memory (GameOptionsClass, the fields its "Resolution = %d X %d"
- * log line prints) so the next game opens at it and the game's own save on
- * exit does not put the old one back. The memory is only written while it
- * holds a plausible resolution. */
-#ifdef RA2_TARGET_GAMEMD
-#define GAME_OPTIONS 0x00A8EB60u
-#define OPT_W_AT 0x24
-#else
-#define GAME_OPTIONS 0x00A40B18u      /* Red Alert 2: width at +0x20 */
-#define OPT_W_AT 0x20
-#endif
-#define OPT_W ((volatile int32_t*)(uintptr_t)(GAME_OPTIONS + OPT_W_AT))
-#define OPT_H ((volatile int32_t*)(uintptr_t)(GAME_OPTIONS + OPT_W_AT + 4))
-/* 21:9 too (1720x720, 2560x1080, 3440x1440, 3840x1600): an ultrawide screen at
- * its own size, not a 16:9 game with bars. 1720x720 is half of 3440x1440, so it
- * scales by a whole 2x there and is small enough for HD vehicles. Nothing wider
- * than the presenter's 4096x2160 frame, so no 5120x2160 or 32:9. */
-static const int k_res[][2] = { { 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1366, 768 }, { 1600, 900 },
-                                { 1720, 720 }, { 1920, 1080 }, { 2560, 1080 }, { 2560, 1440 },
-                                { 3440, 1440 }, { 3840, 1600 }, { 3840, 2160 } };
-#define NRES ((int)(sizeof k_res / sizeof k_res[0]))
-
-static int opt_ok(void) { return *OPT_W >= 320 && *OPT_W <= 8192 && *OPT_H >= 200 && *OPT_H <= 8192; }
+#include "resolutions.h"
+#define OPT_W ((volatile int32_t*)(uintptr_t)RA2_OPT_W_VA)
+#define OPT_H ((volatile int32_t*)(uintptr_t)RA2_OPT_H_VA)
+static int opt_ok(void) { return res_plausible(*OPT_W, *OPT_H); }
 
 static void set_game_resolution(int w, int h) {
     char path[MAX_PATH], v[16];

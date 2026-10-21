@@ -143,7 +143,10 @@ It needs a current pcrecomp (`main`); `setup.sh` offers to update an older clone
 
 The window scales like the Windows presenter: F12 cycles sharp, smooth, CRT,
 nearest and integer scaling, F11 (or Alt+Enter) is fullscreen, and `ra2.ini`
-beside the program remembers them (`--scale` on the command line).
+beside the program remembers them (`--scale` on the command line). F10 opens
+the settings menu over the picture: scaling, the bars, fullscreen, HD
+vehicles (off until you turn them on), the game's resolution and the mod. It
+has no Controls entry: Modern controls are the Windows presenter's.
 `--headless`, `--record`, `--mute`, `--hd-voxels`, `--seed` and the scripted
 input are the Windows host's; `tools/playtest.py` runs the native build when
 it is there. LAN games speak IPXEmu's protocol (IPX over UDP), the one the
@@ -151,7 +154,7 @@ Windows build uses through the game folder's `wsock32.dll`.
 
 On Debian 13, headless, the playtest suite passes 30 of 30 for each game.
 Not on this host: `--original` (it runs the shipping machine code on Windows),
-the F10 settings menu, and a LAN game against a Windows player (untried).
+Modern controls, and a LAN game against a Windows player (untried).
 
 ## macOS, native
 
@@ -177,8 +180,10 @@ BUILD_DIR=build-macos-game CMAKE_ARGS=-DRA2_TARGET=game ./build-macos.sh   # Red
 build-macos/ra2 --run
 ```
 
-The command line, the window (F11, F12), `ra2.ini` and the mods (F9) are the
-Linux host's. On an Apple silicon Mac the playtest suite passes 30 of 30 for
+The command line, the window (F10, F11, F12), `ra2.ini` and the mods (F9) are
+the Linux host's. On a Mac keyboard the F keys are media keys unless you hold
+fn (or turn on "Use F1, F2, etc. keys as standard function keys"), and macOS
+keeps F11 for Show Desktop: Option+Return is fullscreen. On an Apple silicon Mac the playtest suite passes 30 of 30 for
 each game.
 
 ## macOS and Linux, under Wine

@@ -52,6 +52,7 @@ int  script_arg(int argc, char **argv, int i);   /* script.c */
 int  script_active(void);
 void script_log_line(const char *line);
 void script_start(void);
+void menu_start(void (*save)(void));             /* menu.c: F10 */
 
 void ra2_hook_debuglog(void) {
     if (g_debuglog || script_active()) {
@@ -69,7 +70,7 @@ void ra2_hook_debuglog(void) {
 #include "hdvox.h"
 #include "mods.h"
 static int compose_hd(const uint8_t *px16, int pitch, int w, int h, uint32_t *out) {
-    if (!ra2_vox_hd_on) return 0;
+    if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
     hdvox_compose(px16, pitch, w, h, out);
     return 1;
 }
@@ -318,7 +319,7 @@ static void ini_path(void) {
     strcpy(slash ? slash + 1 : g_ini, "ra2.ini");
 }
 static char g_saved_scale[32] = "sharp", g_saved_mod[128];
-static int g_saved_bars = 1, g_saved_full;
+static int g_saved_bars = 1, g_saved_full, g_saved_hd = -1;   /* -1: hdvoxels not in ra2.ini */
 static void settings_load(char *scale, size_t n, int *bars, int *full) {
     FILE *f = g_ini[0] ? fopen(g_ini, "r") : NULL;
     char line[256];
@@ -333,6 +334,7 @@ static void settings_load(char *scale, size_t n, int *bars, int *full) {
         else if (!strcasecmp(line, "scale")) snprintf(scale, n, "%s", eq + 1);
         else if (!strcasecmp(line, "bars")) *bars = strcasecmp(eq + 1, "black") != 0;
         else if (!strcasecmp(line, "fullscreen")) *full = atoi(eq + 1);
+        else if (!strcasecmp(line, "hdvoxels")) g_saved_hd = atoi(eq + 1) != 0;
     }
     if (f) fclose(f);
 }
@@ -342,10 +344,16 @@ static void settings_save(const char *scale, int bars, int full) {
     FILE *f = g_ini[0] ? fopen(g_ini, "w") : NULL;
     if (!f) return;
     fprintf(f, "[present]\nscale=%s\nbars=%s\nfullscreen=%d\n", scale, bars ? "blur" : "black", full);
+    if (ra2_vox_hd_on) fprintf(f, "hdvoxels=%d\n", ra2_vox_hd_show);
     fprintf(f, "[mods]\nactive=%s\n", mods_active());
     fclose(f);
 }
 static void settings_save_mod(void) { settings_save(g_saved_scale, g_saved_bars, g_saved_full); }
+static void settings_save_now(void) {           /* the F10 menu changed one */
+    int bars, full;
+    const char *scale = hle_screen_settings(&bars, &full);
+    settings_save(scale, bars, full);
+}
 
 static uint32_t exe_stamp(const char *path) {
     uint8_t head[4096] = { 0 };
@@ -495,6 +503,14 @@ int main(int argc, char **argv) {
         hle_screen_cursor_hook = menus_use_windows_cursor;
         if (hle_screen_open(RA2_TITLE, full, g_headless) != 0) return 1;
         mods_start(game_full, g_mod, g_saved_mod, argc, argv, settings_save_mod);
+        /* In a window, HD vehicles are F10's to switch, off unless ra2.ini or
+         * --hd-voxels says on: the machinery stays on for the whole run, so
+         * the game's voxel caches never fill (hdvox.h, issue #8). */
+        if (!g_headless) {
+            if (!ra2_vox_hd_on) ra2_vox_hd_show = g_saved_hd > 0;
+            ra2_vox_hd_on = 1;
+            menu_start(settings_save_now);
+        }
     }
     hle_set_pump_hook(frame_pump);
     hle_screen_compose_hook = compose_hd;

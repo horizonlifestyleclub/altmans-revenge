@@ -12,8 +12,8 @@ controls. Modern brings two changes:
 The presenter saves the choice in `ra2.ini` as `controls=classic` or
 `controls=modern`. Neither mode changes `rules.ini` or `rulesmd.ini`. Each
 game uses its own lifted hook addresses and engine globals. The native Linux
-host has no F10 menu: its hooks pass the game's input through unchanged, so it
-always plays with Classic controls.
+and macOS host's F10 menu has no Controls entry: its hooks pass the game's
+input through unchanged, so it always plays with Classic controls.
 
 ## Mouse
 
