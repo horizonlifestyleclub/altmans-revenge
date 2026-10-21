@@ -5,6 +5,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-10-21
+
 ### Added
 - The F10 settings menu on Linux and macOS: scaling, the bars, fullscreen,
   HD vehicles, the game's resolution and the mod, drawn over the picture
