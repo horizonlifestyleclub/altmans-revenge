@@ -5,6 +5,13 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-10-22
+
+### Added
+- The installer shows its version (this release's tag) in its window, and
+  says when a newer release is out, with a button to download it (#25;
+  recomp-launcher 0.3.0).
+
 ### Fixed
 - Linux and macOS: Red Alert 2 seemed to freeze after a resolution was picked
   in its Options screen, with the music still playing (#24). The box that
