@@ -181,6 +181,14 @@ class Script:
         self.t += 2
         return self
 
+    def rdrag(self, x1, y1, x2, y2, after=0):
+        """Hold the right button at x1, y1, move to x2, y2 and hold there a
+        second: the game's right-drag scroll."""
+        self.t += after
+        self.args += ['--rdrag', '%d,%d,%d,%d@%g' % (x1, y1, x2, y2, self.t)]
+        self.t += 3
+        return self
+
     def key(self, vk, after=0):
         self.t += after
         self.args += ['--key', '%s@%g' % (vk, self.t)]
@@ -200,6 +208,7 @@ def S():
 #   expect 'exit':    the exit code
 #   expect 'ini':     RA2MD.INI values for the case's game folder, {section: {key: value}}
 #   expect 'size':    the picture in game is this (w, h)
+#   expect 'hd':      HD voxels on, and no 2x picture showed the units at 1x
 CASES = {}
 
 
@@ -292,6 +301,22 @@ case('skirmish-forcefire', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMI
      .click(236, 213, after=2).key('0x44', after=1)
      .drag(8, 8, 464, 440, after=15).click(352, 158, after=1, mods='c').click(110, 277, after=20, mods='c'),
      180, ingame=True)
+# HD vehicles (--hd-voxels) while the view scrolls by right-drag and the
+# mouse hovers over the units (issues #9, #14): headless, the host makes the
+# presenter's 2x pictures at its pace, and every one must show the units at
+# 2x. A flicker is a picture with fewer than half the 2x unit pixels of the
+# one before (hdvox.c); the case fails on any.
+def scroll(script, rounds):
+    for k in range(rounds):
+        dx, dy = [(60, 0), (-60, 0), (0, 45), (0, -45)][k % 4]
+        script = script.rdrag(236, 240, 236 + dx, 240 + dy).move(236 + 10 * (k % 5), 230, after=0)
+    return script
+
+
+hd_scroll = scroll(SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+                   .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10), 15)
+hd_scroll.args += ['--hd-voxels']
+case('hd-scroll', hd_scroll, 150, ingame=True, hd=True)
 # Building and training: deploy the MCV; build a power plant from the
 # sidebar's first icon and place it beside the construction yard; then a
 # barracks (the second row's first icon, once power is up) the same way; then
@@ -461,6 +486,20 @@ def run(name, args, seconds, expect, every, original=False):
         seen.append('%sx%s' % modes[-1])
     if expect.get('alive') and defeated:
         bad.append('the human player was defeated')
+    # hd: the units at 2x in every picture, and most of their pixels (a 2x
+    # layer that never matched would count no flicker at all)
+    if expect.get('hd'):
+        hd = re.findall(r'\[hdvox\] .*?units (\d+) of (\d+),.*?(\d+) pictures, (\d+) with the units at 1x', text)
+        if not hd or int(hd[-1][2]) < 100:
+            bad.append('no HD pictures counted')
+        else:
+            shown, offered, pictures, dips = map(int, hd[-1])
+            seen.append('HD: %d pictures, %d at 1x, %.1f%% of unit pixels at 2x'
+                        % (pictures, dips, 100.0 * shown / max(offered, 1)))
+            if dips:
+                bad.append('%d pictures with the units at 1x' % dips)
+            if shown < 0.9 * offered or not offered:
+                bad.append('units at 2x in only %d of %d pixels' % (shown, offered))
     # log: {text: at least n}, lines the game's own debug log must print
     # ("Adding event PRODUCE" for each order to build or train).
     for text, n in expect.get('log', {}).items():

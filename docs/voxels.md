@@ -144,6 +144,41 @@ between frames; it is the same with HD voxels on and off (6.4 ms in a
 skirmish, 16.0 ms in the Soviet mission's opening, headless): the work fits
 inside the game's own pacing.
 
+**Publishing, and the flicker it caused.** A record shows only on a picture
+of the frame it was made in, so when the records are published, and which
+set the presenter lays over which picture, decides whether units flicker
+between 2x and 1x (issues #9 and #14). Three rules, each from a flicker:
+
+- A frame's records are published at the copy of the battlefield into the
+  frame surface: a copy of at least half of it. The mouse's own copies (its
+  47x34 square) come in the middle of a frame while the view scrolls;
+  publishing there split a frame's records in two, and the next picture
+  showed the units not yet drawn at 1x, over a picture still of the frame
+  before.
+- Never an empty set: moving the mouse makes copies with no unit drawn
+  (`e132145`).
+- The presenter applies the last two sets, the older first. It copies the
+  frame and then reads the records, on its own thread, and a frame published
+  in between paired the old picture with the new records: every unit at 1x
+  for a picture. A record draws only where the picture still shows what it
+  recorded, so the set the picture belongs to wins, even on a picture copied
+  halfway through the game's copy. (The native hosts compose on the game's
+  thread, so this one was the Windows presenter's, and Wine's.)
+
+Both mismatches also lay a shadow's 2x edge, whose pixels are mostly plain
+ground and match easily, where the unit is going over a picture of where it
+was: most likely the "shadow above the tank" reported in #14. No test checks
+shadows on their own yet.
+
+The `[hdvox]` line counts the pictures and those with the units at 1x (fewer
+than half the 2x unit pixels of the picture before, from at least 2000).
+Headless with `--hd-voxels`, the host makes the presenter's pictures at its pace and throws
+them away, so a playtest can count them: `hd-scroll` (docs/testing.md), a
+minute of right-drag scrolling, wants none, and 90% of the units' pixels at
+2x. Before the first and last rules it counted 2 to 7 on Linux and 10 to 12
+on macOS, and on Windows 24 with the first alone; with all three, 0 on Linux
+and macOS (Windows: 0 in a shorter run).
+
 The 2x frame needs twice the game's resolution to fit the presenter's
 4096x2160 frame: up to 2048x1080; above that the presenter shows the 1x
 frame.
@@ -186,11 +221,9 @@ reasons, neither investigated yet:
   suggests the presenter alternating between a unit's 2x pixels and its 1x
   ones (a record that no longer matches the frame is dropped, and the unit
   falls back to 1x), or a 2x record laid over a frame other than its own.
-  One thing to check first: since `009c8b4` the composition runs on a copy
-  of the primary taken under its lock, no longer inside the lock, so the
-  game can publish the next frame's records between the copy and the
-  composition. Whether the flashing came before that change too, and
-  whether it shows on Windows, would separate the two. `--hd-voxels-dump`
-  writes the 1x and 2x renders and composed frames to compare.
+  Both happened and are fixed (Publishing, above): the records published
+  between the presenter's copy and its composition, and half a frame's
+  records published at a mouse copy. Whether that was all of the flashing
+  under Wine is still to be checked there.
 
 When both are understood and fixed, the default can go back to on under Wine.

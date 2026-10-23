@@ -770,6 +770,23 @@ int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     return ok;
 }
 
+/* Headless with HD voxels: the presenter's 2x pictures, made at its pace (a
+ * new frame, at most one per 16 ms) and thrown away, so hdvox.c counts any
+ * that showed the units at 1x (tools/playtest.py hd-scroll). */
+static DWORD WINAPI hd_probe(LPVOID unused) {
+    static uint32_t px[4096 * 2160];
+    long seen = -1;
+    (void)unused;
+    for (;;) {
+        int w, h;
+        Sleep(16);
+        long n = host_frame_count();
+        if (n == seen) continue;
+        seen = n;
+        host_frame_hd(px, 4096, 2160, &w, &h);
+    }
+}
+
 /* --hd-voxels-dump DIR: every 10 s, the 2x frame as frame_NN.bmp (24-bit). */
 static const char* g_hd_frames_dir;
 
@@ -1393,6 +1410,7 @@ int main(int argc, char** argv) {
     input_start();
     if (!g_classic && !g_headless) present_start(g_scale_mode, g_fullscreen);
     if (g_hd_frames_dir) CloseHandle(CreateThread(NULL, 0, hd_frame_dumper, NULL, 0, NULL));
+    if (g_headless && ra2_vox_hd_on) CloseHandle(CreateThread(NULL, 0, hd_probe, NULL, 0, NULL));
     printf("  entering 0x%08X\n\n", ra2_entry_va);
     fflush(stdout);
     native32_call_guest(ra2_entry_va, 0, NULL);

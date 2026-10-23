@@ -29,6 +29,7 @@ py -3 tools/playtest.py skirmish-loop --original
 | `skirmish-build` | deploy the MCV, build a power plant and a barracks (placed at the first free spot of a ring around the yard), train a GI, all by mouse | the game's event log: `PRODUCE` three times, `PLACE`; the player alive (the Soviet AI's first rush arrives at about 3:40, so the orders have to be in by then) |
 | `skirmish-loop` | a skirmish nobody plays, through defeat, the score screen, Continue | the main menu opens again; the AI usually wins in about 4.5 minutes, but now and then not within the 12, and the case fails on timing (run it again) |
 | `campaign-*` | New Campaign, then the Allied or Soviet emblem | in game, and the player not defeated |
+| `hd-scroll` | a skirmish with HD vehicles on: a minute of right-drag scrolling, the mouse over the units between drags | in game, and none of the presenter's 2x pictures (made headless at its pace) showed the units at 1x (the `[hdvox]` line's "0 with the units at 1x"), and 90% of the units' pixels at 2x (issue #14) |
 | `lan-new` | Network, then New: the LAN host's setup screen | the screen opened, no fault |
 
 ## Red Alert 2 (`game.exe`)
@@ -72,6 +73,7 @@ which becomes host arguments:
 | `--waitlog TEXT@s` | hold the script until the game's debug log prints TEXT |
 | `--key [c][s][a]+vk@s`, `--move x,y@s`, `--click [c][s][a]+x,y@s`, `--wait VA@s` | as in civ3; a click can hold Ctrl, Shift, Alt (Ctrl+click is force-fire) |
 | `--drag x1,y1,x2,y2@s` | a band selection: button down at one corner, across, up at the other |
+| `--rdrag x1,y1,x2,y2@s` | the same with the right button, held a second at the far end: the game's right-drag scroll |
 | `--uclick x,y@s` | the native host only: a click as the mouse gives it, to the window under the point (a menu's own control, a combo box's arrow), where `--click` goes to the game's window |
 
 `s` counts seconds from when the main menu first opened (civ3: then a script

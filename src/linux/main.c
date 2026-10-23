@@ -300,6 +300,17 @@ static void frame_pump(void) {
     int w, h, pitch, bpp;
     hle_screen_pump();
     uint32_t now = hle_ticks_ms();
+    /* Headless with HD voxels: the presenter's 2x picture at its pace, thrown
+     * away, so hdvox.c counts any with the units at 1x (playtest hd-scroll). */
+    static int probe = -1;
+    static uint32_t probed;
+    static uint32_t *probe_px;
+    if (probe < 0) probe = g_headless && ra2_vox_hd_on;
+    if (probe && now - probed >= 15 && hle_dd_frame(&px, &w, &h, &pitch, &bpp, &pal, NULL) && bpp == 16) {
+        if (!probe_px) probe_px = malloc((size_t)4096 * 2160 * 4);
+        if (probe_px && w <= 2048 && h <= 1080) compose_hd(px, pitch, w, h, probe_px);
+        probed = now;
+    }
     if ((int32_t)(now - next) < 0 || !hle_dd_frame(&px, &w, &h, &pitch, &bpp, &pal, NULL)) return;
     next = now + 3333;
     if (!g_record)

@@ -9,7 +9,7 @@
  *   --move x,y@s  --click [c][s][a]+x,y@s  --key [c][s][a]+vk@s  --wait VA@s
  *   --uclick x,y@s  a click as the mouse gives it: to the window under the
  *                   point (user32's hit test and capture), as screen.c does
- *   --drag x1,y1,x2,y2@s
+ *   --drag x1,y1,x2,y2@s   --rdrag x1,y1,x2,y2@s (right button, held 1 s at the end)
  *
  * s is seconds after the main menu's dialog (0xE2) opened; events run in time order on their
  * own thread, and a wait moves every later event back by however long it
@@ -37,6 +37,9 @@
 #define WM_LBUTTONDOWN 0x0201u
 #define WM_LBUTTONUP   0x0202u
 #define MK_LBUTTON     1u
+#define WM_RBUTTONDOWN 0x0204u
+#define WM_RBUTTONUP   0x0205u
+#define MK_RBUTTON     2u
 
 typedef struct { char kind; int x, y, mods; double t; char text[64]; } ev_t;
 #define MAX_EV 256
@@ -62,11 +65,11 @@ int script_arg(int argc, char **argv, int i) {
     } else if (!strcmp(argv[i], "--uclick")) {
         if (sscanf(a, "%d,%d@%lf", &e.x, &e.y, &e.t) != 3) return 0;
         e.kind = 'u';
-    } else if (!strcmp(argv[i], "--drag")) {
+    } else if (!strcmp(argv[i], "--drag") || !strcmp(argv[i], "--rdrag")) {
         int x2, y2;
         if (sscanf(a, "%d,%d,%d,%d@%lf", &e.x, &e.y, &x2, &y2, &e.t) != 5) return 0;
         e.mods = x2 << 16 | (y2 & 0xFFFF);
-        e.kind = 'd';
+        e.kind = argv[i][2];                             /* 'd' or 'r' */
     } else if (!strcmp(argv[i], "--press")) {
         if (sscanf(a, "%i:%i@%lf", &e.x, &e.y, &e.t) != 3) return 0;
         e.kind = 'p';
@@ -362,24 +365,27 @@ static void *script(void *unused) {
             lb_seen();
             continue;
         }
-        if (e->kind == 'd') {
-            int x2 = e->mods >> 16, y2 = (int16_t)(e->mods & 0xFFFF);
-            fprintf(stderr, "[input] %.1fs drag %d,%d to %d,%d\n", e->t, e->x, e->y, x2, y2);
+        if (e->kind == 'd' || e->kind == 'r') {
+            int x2 = e->mods >> 16, y2 = (int16_t)(e->mods & 0xFFFF), right = e->kind == 'r';
+            uint32_t down = right ? WM_RBUTTONDOWN : WM_LBUTTONDOWN, up = right ? WM_RBUTTONUP : WM_LBUTTONUP;
+            uint32_t mk = right ? MK_RBUTTON : MK_LBUTTON, vk = right ? 2 : 1;   /* VK_RBUTTON, VK_LBUTTON */
+            fprintf(stderr, "[input] %.1fs %sdrag %d,%d to %d,%d\n", e->t, right ? "right " : "", e->x, e->y, x2, y2);
             cursor(e->x, e->y);
             post(h, WM_MOUSEMOVE, 0, lp_of(e->x, e->y));
             sleep_ms(100);
-            key_state(1, 1);
-            post(h, WM_LBUTTONDOWN, MK_LBUTTON, lp_of(e->x, e->y));
+            key_state(vk, 1);
+            post(h, down, mk, lp_of(e->x, e->y));
             lb_seen();
             for (int k = 1; k <= 10; k++) {
                 int x = e->x + (x2 - e->x) * k / 10, y = e->y + (y2 - e->y) * k / 10;
                 cursor(x, y);
-                post(h, WM_MOUSEMOVE, MK_LBUTTON, lp_of(x, y));
+                post(h, WM_MOUSEMOVE, mk, lp_of(x, y));
                 sleep_ms(60);
             }
+            if (right) sleep_ms(1000);                   /* the view scrolls while it is held */
             lb_seen();
-            post(h, WM_LBUTTONUP, 0, lp_of(x2, y2));
-            key_state(1, 0);
+            post(h, up, 0, lp_of(x2, y2));
+            key_state(vk, 0);
             lb_seen();
             continue;
         }

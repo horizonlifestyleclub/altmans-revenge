@@ -5,6 +5,16 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- HD vehicles: units no longer flicker to 1x while the view scrolls by
+  right-drag or the mouse moves over them (#14, #9; reported by @kelno,
+  @badrig217 and @dkvdm). A frame's 2x records were published at the
+  mouse's own small copies in the middle of a frame, and the Windows
+  presenter could pair a picture with the next frame's records. The same
+  mismatch most likely drew the shadows seen above tanks. A new playtest,
+  `hd-scroll`, counts the pictures with the units at 1x during a minute of
+  right-drag scrolling: 0 on Linux and macOS, where it was 2 to 12.
+
 ## [0.1.0-alpha.4] - 2026-10-22
 
 ### Added

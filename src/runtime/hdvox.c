@@ -361,9 +361,16 @@ void ra2_vox_hd_blitted(void) {
 typedef struct { int16_t x, y, w, h, kind, pad; } rec_t;   /* kind 0 unit, 1 shadow; then E[w*h], O[4*w*h] (uint16), m[w*h] */
 
 #define ARENA (24u << 20)
-static uint8_t* g_arena[2];
-static size_t g_used[2];
-static int g_build;                               /* the arena being built this frame */
+/* Three arenas: the one being built this frame, the last published, and the
+ * one before it. The presenter copies the frame, then reads the records, on
+ * its own thread: a frame published in between paired the old picture with
+ * the new records, and the units showed at 1x for a picture (issue #14). It
+ * applies the two last sets, the older first, and each record draws only
+ * where the picture still shows what it recorded, so the set that matches
+ * the picture wins, wherever the copy was. */
+static uint8_t* g_arena[3];
+static size_t g_used[3];
+static int g_build, g_pub = 1, g_prev = 2;
 static CRITICAL_SECTION g_pub_lock;
 static int g_pub_lock_init;
 static long g_records, g_published_frames;
@@ -375,9 +382,8 @@ static size_t g_need;
 static rec_t* rec_new(int x, int y, int w, int h, uint16_t** E, uint16_t** O, uint8_t** m) {
     g_need = sizeof(rec_t) + (size_t)w * h * (2 + 8 + 1);
     if (!g_arena[0]) {
-        g_arena[0] = (uint8_t*)VirtualAlloc(NULL, ARENA, MEM_COMMIT, PAGE_READWRITE);
-        g_arena[1] = (uint8_t*)VirtualAlloc(NULL, ARENA, MEM_COMMIT, PAGE_READWRITE);
-        if (!g_arena[0] || !g_arena[1]) { ra2_vox_hd_on = 0; return NULL; }
+        for (int k = 0; k < 3; k++) g_arena[k] = (uint8_t*)VirtualAlloc(NULL, ARENA, MEM_COMMIT, PAGE_READWRITE);
+        if (!g_arena[0] || !g_arena[1] || !g_arena[2]) { ra2_vox_hd_on = 0; return NULL; }
     }
     if (g_used[g_build] + g_need > ARENA) return NULL;
     rec_t* r = (rec_t*)(g_arena[g_build] + g_used[g_build]);
@@ -668,7 +674,6 @@ volatile LONG ra2_frame_copies;
 
 /* 0x004373B0 entry: a copy into the frame surface ends the frame. */
 void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
-    (void)argp;
     static int stats = -1;
     if (dest == FRAME_SURF) InterlockedIncrement(&ra2_frame_copies);
     if (stats < 0) stats = getenv("RA2_FRAME_STATS") != NULL;
@@ -693,11 +698,22 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
      * copies with nothing recorded, and publishing nothing after a few of
      * them showed every unit at 1x for a picture, a flicker at each mouse
      * move (issues #9, #14). Records kept past their frame are harmless: a
-     * record's 2x pixels show only where the frame still matches it. */
+     * record's 2x pixels show only where the frame still matches it.
+     * And only at the battlefield's copy, which covers at least half the
+     * frame surface: the mouse's own small copies come in the middle of a
+     * frame while the view scrolls, and publishing there split the frame's
+     * records, so the next picture showed the units not yet drawn at 1x
+     * (issue #14, right-drag scrolling). The sidebar's copy draws no unit. */
     if (!g_used[g_build]) return;
+    {
+        const uint32_t* fs = (const uint32_t*)GUEST_PTR(dest);
+        const int32_t* dr = (const int32_t*)GUEST_PTR(((const uint32_t*)GUEST_PTR(argp))[0]);
+        if (2LL * dr[2] * dr[3] < (long long)fs[1] * fs[2]) return;
+    }
     if (!g_pub_lock_init) InitializeCriticalSection(&g_pub_lock), g_pub_lock_init = 1;
     EnterCriticalSection(&g_pub_lock);
-    g_build ^= 1;                                 /* publish this frame's records */
+    g_prev = g_pub, g_pub = g_build;              /* publish this frame's records */
+    g_build = 3 - g_prev - g_pub;
     g_used[g_build] = 0;
     g_published_frames++;
     {
@@ -708,6 +724,8 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
     }
     LeaveCriticalSection(&g_pub_lock);
 }
+
+static long g_pictures, g_dips;
 
 static uint32_t bgrx(uint16_t p) {
     uint32_t r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
@@ -727,43 +745,59 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
         }
     }
     if (!HD_LIVE || !g_pub_lock_init) return;
+    long got[2][2] = { { 0 } }, off[2][2] = { { 0 } };     /* [set][kind] */
     EnterCriticalSection(&g_pub_lock);
-    const uint8_t* p = g_arena[g_build ^ 1];
-    size_t end = g_used[g_build ^ 1];
-    for (size_t at = 0; at < end;) {
-        const rec_t* r = (const rec_t*)(p + at);
-        int rw = r->w, rh = r->h;
-        const uint16_t* E = (const uint16_t*)(r + 1);
-        const uint16_t* O = E + rw * rh;
-        const uint8_t* m = (const uint8_t*)(O + 4 * rw * rh);
-        for (int j = 0; j < rh; j++) {
-            int y = r->y + j;
-            if (y < 0 || y >= h) continue;
-            const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
-            uint32_t* o0 = out + (2 * y) * 2 * w, *o1 = o0 + 2 * w;
-            for (int i = 0; i < rw; i++) {
-                int x = r->x + i, k = j * rw + i;
-                if (x < 0 || x >= w || !m[k]) continue;
-                offered[r->kind]++;
-                if (row[x] != E[k]) continue;      /* drawn over since */
-                matched[r->kind]++;
-                o0[2 * x] = bgrx(O[k * 4]), o0[2 * x + 1] = bgrx(O[k * 4 + 1]);
-                o1[2 * x] = bgrx(O[k * 4 + 2]), o1[2 * x + 1] = bgrx(O[k * 4 + 3]);
+    for (int set = 0; set < 2; set++) {           /* the set before, then the last */
+        const uint8_t* p = g_arena[set ? g_pub : g_prev];
+        size_t used = g_used[set ? g_pub : g_prev];
+        for (size_t at = 0; at < used;) {
+            const rec_t* r = (const rec_t*)(p + at);
+            int rw = r->w, rh = r->h;
+            const uint16_t* E = (const uint16_t*)(r + 1);
+            const uint16_t* O = E + rw * rh;
+            const uint8_t* m = (const uint8_t*)(O + 4 * rw * rh);
+            for (int j = 0; j < rh; j++) {
+                int y = r->y + j;
+                if (y < 0 || y >= h) continue;
+                const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
+                uint32_t* o0 = out + (2 * y) * 2 * w, *o1 = o0 + 2 * w;
+                for (int i = 0; i < rw; i++) {
+                    int x = r->x + i, k = j * rw + i;
+                    if (x < 0 || x >= w || !m[k]) continue;
+                    off[set][r->kind]++;
+                    if (row[x] != E[k]) continue;      /* drawn over since */
+                    got[set][r->kind]++;
+                    o0[2 * x] = bgrx(O[k * 4]), o0[2 * x + 1] = bgrx(O[k * 4 + 1]);
+                    o1[2 * x] = bgrx(O[k * 4 + 2]), o1[2 * x + 1] = bgrx(O[k * 4 + 3]);
+                }
             }
+            at += (sizeof(rec_t) + (size_t)rw * rh * 11 + 7) & ~(size_t)7;
         }
-        at += (sizeof(rec_t) + (size_t)rw * rh * 11 + 7) & ~(size_t)7;
     }
     LeaveCriticalSection(&g_pub_lock);
+    int best = got[1][0] >= got[0][0];            /* the set the picture is (counted) */
+    for (int k = 0; k < 2; k++) matched[k] += got[best][k], offered[k] += off[best][k];
+    /* A flicker is a picture whose units fell to 1x: fewer than half the 2x
+     * unit pixels of the picture before, from at least 2000 (a unit leaving
+     * the screen is a few hundred). The [hdvox] line counts them, printed at
+     * once; tools/playtest.py's hd-scroll case wants none. */
+    {
+        static long prev;
+        long shown = got[best][0];
+        g_pictures++;
+        if (prev >= 2000 && 2 * shown < prev) g_dips++, logged_at = 0;
+        prev = shown;
+    }
     if (g_published_frames - logged_at >= 300) {
         logged_at = g_published_frames;
         LARGE_INTEGER hz;
         QueryPerformanceFrequency(&hz);
         double n = g_published_frames > 1 ? (double)(g_published_frames - 1) : 1.0;
         fprintf(stderr, "[hdvox] %ld frames, %ld records (%ld shadows, %ld aircraft parts, %ld shadows not on the battlefield); "
-                "2x pixels shown: units %ld of %ld, shadows %ld of %ld; "
+                "2x pixels shown: units %ld of %ld, shadows %ld of %ld; %ld pictures, %ld with the units at 1x; "
                 "%.1f ms a frame, %.2f of it the 2x renders (%ld renders, %ld from memory, %ld voxel animation renders)\n",
                 g_published_frames, g_records, g_sh_records, g_direct,
-                g_sh_skipped, matched[0], offered[0], matched[1], offered[1],
+                g_sh_skipped, matched[0], offered[0], matched[1], offered[1], g_pictures, g_dips,
                 1000.0 * g_frame_ticks / hz.QuadPart / n, 1000.0 * g_hd_ticks / hz.QuadPart / n,
                 g_memo_hits + g_memo_misses, g_memo_hits, g_anim_renders);
     }
