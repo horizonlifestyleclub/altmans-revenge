@@ -93,7 +93,10 @@ elif [ "$NATIVE" = 1 ]; then
     say "    Fedora:         sudo dnf install gcc glibc-devel.i686 libgcc.i686 libatomic.i686 cmake ninja-build pkgconf python3 liberation-sans-fonts \\"
     say "                                     sdl2-compat-devel.i686 SDL2_ttf-devel.i686 \\"
     say "                                     libavformat-free-devel.i686 libavcodec-free-devel.i686 libswresample-free-devel.i686 libavutil-free-devel.i686"
-    say "    Arch:           sudo pacman -S gcc cmake ninja python lib32-sdl2 lib32-sdl2_ttf lib32-ffmpeg ttf-liberation (multilib)"
+    say "    Arch (enable [multilib] in /etc/pacman.conf first):"
+    say "                    sudo pacman -S gcc cmake ninja python ttf-liberation lib32-sdl2_ttf"
+    say "                    lib32-ffmpeg is in the AUR: yay -S lib32-ffmpeg  (or paru, or makepkg)"
+    say "                    (lib32-sdl2_ttf pulls in the 32-bit SDL2 it needs, lib32-sdl2-compat)"
     say "  Or ./setup.sh --wine to play the Windows builds under Wine instead."
     fail "install them, then run ./setup.sh again."
   fi
