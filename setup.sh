@@ -78,7 +78,10 @@ elif [ "$NATIVE" = 1 ]; then
   # /usr/lib64 is a directory of its own; on Arch it is /usr/lib, 64-bit)
   pcdirs="/usr/lib/i386-linux-gnu/pkgconfig /usr/lib32/pkgconfig"
   [ -d /usr/lib64 ] && [ ! -L /usr/lib64 ] && pcdirs="$pcdirs /usr/lib/pkgconfig"
-  for pc in sdl2 SDL2_ttf libavformat libavcodec libswresample libavutil; do
+  # WITH_FFMPEG=OFF builds without the Bink movies, so don't demand its libraries.
+  pkgs="sdl2 SDL2_ttf libavformat libavcodec libswresample libavutil"
+  [ "${WITH_FFMPEG:-1}" = 0 ] && pkgs="sdl2 SDL2_ttf"
+  for pc in $pkgs; do
     # where pkg-config finds it (by name or by a package's Provides, as Fedora's
     # sdl2-compat provides sdl2), and only a 32-bit directory counts
     at=$(PKG_CONFIG_PATH=${pcdirs// /:} pkg-config --path "$pc" 2>/dev/null || true)   # not found: set -e left silently
@@ -97,6 +100,8 @@ elif [ "$NATIVE" = 1 ]; then
     say "                    sudo pacman -S gcc cmake ninja python ttf-liberation lib32-sdl2_ttf"
     say "                    lib32-ffmpeg is in the AUR: yay -S lib32-ffmpeg  (or paru, or makepkg)"
     say "                    (lib32-sdl2_ttf pulls in the 32-bit SDL2 it needs, lib32-sdl2-compat)"
+    say "                    ffmpeg is only the Bink movies. To skip the AUR package, build with"
+    say "                    CMAKE_ARGS=-DWITH_FFMPEG=OFF ./build-linux.sh (no intro/cutscene movies)."
     say "  Or ./setup.sh --wine to play the Windows builds under Wine instead."
     fail "install them, then run ./setup.sh again."
   fi

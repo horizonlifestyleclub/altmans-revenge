@@ -5,11 +5,13 @@
 #
 #   ./build-linux.sh            # build-linux/ra2: Yuri's Revenge
 #   BUILD_DIR=build-linux-game CMAKE_ARGS=-DRA2_TARGET=game ./build-linux.sh   # Red Alert 2
+#   CMAKE_ARGS=-DWITH_FFMPEG=OFF ./build-linux.sh   # skip ffmpeg (no Bink movies)
 #   build-linux/ra2 --run       # from here, with the game in ./game
 #
 # Needs a lift (run_lift.py), gcc with -m32 (gcc-multilib), cmake, ninja,
 # and SDL2, SDL2_ttf and ffmpeg's libraries for i386; setup.sh lists the
-# packages.
+# packages. ffmpeg is only the Bink movies: WITH_FFMPEG=OFF drops it (handy
+# where 32-bit ffmpeg is hard to get, e.g. Arch's AUR-only lib32-ffmpeg).
 set -e
 cd "$(dirname "$0")"
 BUILD_DIR=${BUILD_DIR:-build-linux}
