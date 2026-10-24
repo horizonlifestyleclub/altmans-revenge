@@ -36,6 +36,8 @@
 
 int host_frame(uint32_t* out, int maxw, int maxh, int* w, int* h);   /* host.c */
 int host_frame_hd(uint32_t* out, int maxw, int maxh, int* w, int* h);   /* host.c: 2x, HD voxels */
+int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* w, int* h,
+                       int* dx, int* dy, int* dw, int* dh);   /* host.c: 1x base + 2x overlay */
 HCURSOR host_menu_cursor(void);   /* host.c: the game's cursor, NULL while it draws its own */
 HWND host_game_focus(void);       /* host.c: under Wine, the window the game gave the focus */
 long host_frame_count(void);      /* host.c: blits into the primary so far */
@@ -83,6 +85,7 @@ static const char k_hlsl[] =
 "float4 ps(V i) : SV_Target {\n"
 "  float3 c;\n"
 "  if (mode == 5) return float4(blur(i.uv), 1);\n"
+"  if (mode == 6) return t0.Sample(s_pt, i.uv);\n"    /* HD overlay: point, keep alpha */
 "  if (mode == 0) c = sharp(i.uv);\n"
 "  else if (mode == 1) c = t0.Sample(s_lin, i.uv).rgb;\n"
 "  else if (mode == 2) c = crt(i.uv, i.pos.xy);\n"
@@ -104,6 +107,10 @@ static struct {
     ID3D11ShaderResourceView* srv;
     int tw, th;                 /* texture size */
     int cw, ch;                 /* swap chain size */
+    ID3D11BlendState* blend;    /* alpha blend for the HD overlay */
+    ID3D11Texture2D* ov_tex;    /* the 2x HD overlay */
+    ID3D11ShaderResourceView* ov_srv;
+    int ow, oh;
 } d;
 
 static int g_mode;                       /* index into k_mode_names */
@@ -184,6 +191,16 @@ static int d3d_init(HWND hw) {
     ID3D11Device_CreateSamplerState(d.dev, &s, &d.samp[0]);
     s.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
     ID3D11Device_CreateSamplerState(d.dev, &s, &d.samp[1]);
+    D3D11_BLEND_DESC bl = {0};                           /* over the 1x base: src.a, 1-src.a */
+    bl.RenderTarget[0].BlendEnable = TRUE;
+    bl.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    bl.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    bl.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    bl.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    bl.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+    bl.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    bl.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    ID3D11Device_CreateBlendState(d.dev, &bl, &d.blend);
     D3D11_BUFFER_DESC b = {0};
     b.ByteWidth = 32;
     b.Usage = D3D11_USAGE_DEFAULT;
@@ -212,7 +229,8 @@ static RECT fit(int cw, int ch, int gw, int gh, int integer) {
     return r;
 }
 
-static void draw(const uint32_t* frame, int gw, int gh) {
+static void draw(const uint32_t* frame, int gw, int gh,
+                 const uint32_t* ov, int ow, int oh, int odx, int ody, int odw, int odh) {
     RECT cr;
     GetClientRect(d.hwnd, &cr);
     int cw = cr.right > 0 ? cr.right : 1, ch = cr.bottom > 0 ? cr.bottom : 1;
@@ -269,6 +287,34 @@ static void draw(const uint32_t* frame, int gw, int gh) {
     D3D11_VIEWPORT vp = { (float)r.left, (float)r.top, (float)(r.right - r.left), (float)(r.bottom - r.top), 0, 1 };
     ID3D11DeviceContext_RSSetViewports(d.ctx, 1, &vp);
     ID3D11DeviceContext_Draw(d.ctx, 3, 0);
+    /* The HD overlay: the units' 2x pixels, blended over the scaled 1x picture
+     * in the same rect (docs/voxels.md). Point-sampled (mode 6, keeps alpha). */
+    if (ov) {
+        if (!d.ov_tex || d.ow != ow || d.oh != oh) {
+            if (d.ov_srv) ID3D11ShaderResourceView_Release(d.ov_srv);
+            if (d.ov_tex) ID3D11Texture2D_Release(d.ov_tex);
+            D3D11_TEXTURE2D_DESC td = {0};
+            td.Width = ow; td.Height = oh; td.MipLevels = 1; td.ArraySize = 1;
+            td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; td.SampleDesc.Count = 1;
+            td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            ID3D11Device_CreateTexture2D(d.dev, &td, NULL, &d.ov_tex);
+            ID3D11Device_CreateShaderResourceView(d.dev, (ID3D11Resource*)d.ov_tex, NULL, &d.ov_srv);
+            d.ow = ow, d.oh = oh;
+            odx = ody = 0, odw = ow, odh = oh;       /* a new texture: upload all of it */
+        }
+        if (odw > 0 && odh > 0) {
+            D3D11_BOX box = { odx, ody, 0, odx + odw, ody + odh, 1 };
+            ID3D11DeviceContext_UpdateSubresource(d.ctx, (ID3D11Resource*)d.ov_tex, 0, &box,
+                                                  ov + (size_t)ody * ow + odx, ow * 4, 0);
+        }
+        struct { float src[2], dst[2]; int mode, p0, p1, p2; } co = {
+            { (float)ow, (float)oh }, { (float)(r.right - r.left), (float)(r.bottom - r.top) }, 6, 0, 0, 0 };
+        ID3D11DeviceContext_UpdateSubresource(d.ctx, (ID3D11Resource*)d.cb, 0, NULL, &co, 0, 0);
+        ID3D11DeviceContext_PSSetShaderResources(d.ctx, 0, 1, &d.ov_srv);
+        ID3D11DeviceContext_OMSetBlendState(d.ctx, d.blend, NULL, 0xFFFFFFFFu);
+        ID3D11DeviceContext_Draw(d.ctx, 3, 0);        /* same viewport as the base */
+        ID3D11DeviceContext_OMSetBlendState(d.ctx, NULL, NULL, 0xFFFFFFFFu);
+    }
     IDXGISwapChain_Present(d.sc, 1, 0);               /* vsync paces this thread */
 }
 
@@ -740,6 +786,7 @@ static void frame_stats(LARGE_INTEGER t0, LARGE_INTEGER t1, LARGE_INTEGER t2) {
 
 static DWORD WINAPI present_thread(LPVOID arg) {
     static uint32_t frame[4096 * 2160];
+    static uint32_t ovbuf[4096 * 2160];          /* the 2x HD overlay (host_frame_overlay) */
     int fullscreen = (int)(intptr_t)arg;
     timeBeginPeriod(1);              /* timeGetTime and Sleep(1) below in milliseconds */
     /* Per-monitor DPI aware, this thread only. Unaware, Windows stretched the
@@ -828,15 +875,20 @@ static DWORD WINAPI present_thread(LPVOID arg) {
         }
         LARGE_INTEGER t0, t1, t2;
         QueryPerformanceCounter(&t0);
-        int hd = host_frame_hd(frame, 4096, 2160, &gw, &gh);
+        int dx, dy, dw, dh;
+        int hd = host_frame_overlay(frame, ovbuf, 4096, 2160, &gw, &gh, &dx, &dy, &dw, &dh);
         if (hd < 0) {                              /* locked: the last picture stays */
             Sleep(1);
-        } else if (hd) {                           /* the picture at 2x */
-            gw = cut_menu_band(frame, gw, gh, 2);
+        } else if (hd) {                           /* 1x base + 2x overlay */
+            int full = gw;
+            gw = cut_menu_band(frame, gw, gh, 1);  /* the base is 1x now */
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
-            draw(frame, 2 * gw, 2 * gh);
+            if (gw != full)                        /* a menu band was cut: no units behind it */
+                draw(frame, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
+            else
+                draw(frame, gw, gh, ovbuf, 2 * gw, 2 * gh, dx, dy, dw, dh);
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else if (host_frame(frame, 4096, 2160, &gw, &gh)) {
@@ -844,7 +896,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             InterlockedExchange(&g_gw, gw);
             InterlockedExchange(&g_gh, gh);
             QueryPerformanceCounter(&t1);
-            draw(frame, gw, gh);
+            draw(frame, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else {

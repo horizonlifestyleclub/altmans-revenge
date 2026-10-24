@@ -770,6 +770,37 @@ int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     return ok;
 }
 
+/* The 1x frame into `base` (BGRX, w x h) and the HD layer into `ov` (BGRA,
+ * 2w x 2h), for a presenter that scales the base itself (present.c), so the
+ * CPU no longer upscales the whole frame. *dx..*dh get the 2x sub-rect of ov
+ * that changed since last call (upload only that). Returns 1 with an overlay,
+ * 0 for 1x only (HD off), -1 when the primary is locked. */
+int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* pw, int* ph,
+                       int* dx, int* dy, int* dw, int* dh) {
+    int w, h, bpp, pitch;
+    *dx = *dy = *dw = *dh = 0;
+    if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
+    EnterCriticalSection(&g_snap_lock);
+    if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
+    int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
+    if (ok) {
+        for (int y = 0; y < h; y++) {
+            const uint16_t* src = (const uint16_t*)(g_snap + (size_t)y * pitch);
+            uint32_t* row = base + (size_t)y * w;
+            for (int x = 0; x < w; x++) {
+                uint16_t p = src[x];
+                uint32_t r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+                row[x] = (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
+            }
+        }
+        hdvox_overlay(g_snap, pitch, w, h, ov, dx, dy, dw, dh);
+    }
+    LeaveCriticalSection(&g_snap_lock);
+    *pw = w;
+    *ph = h;
+    return ok;
+}
+
 /* Headless with HD voxels: the presenter's 2x pictures, made at its pace (a
  * new frame, at most one per 16 ms) and thrown away, so hdvox.c counts any
  * that showed the units at 1x (tools/playtest.py hd-scroll). */

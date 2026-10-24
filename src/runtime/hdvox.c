@@ -727,22 +727,32 @@ void ra2_vox_frame_blit(uint32_t dest, uint32_t argp) {
 
 static long g_pictures, g_dips;
 
-static uint32_t bgrx(uint16_t p) {
-    uint32_t r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
-    return (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
+/* 16-bit 565 -> BGRX through a table built once. compose converts millions of
+ * pixels a frame; at 1080p+ the per-pixel shifts were real cost (a Linux
+ * 4090/9800X3D saw HD voxels chug, native x86, not just under Wine). */
+static uint32_t g_bgrx_lut[65536];
+static void bgrx_ready(void) {
+    static int built;
+    if (built) return;
+    for (uint32_t p = 0; p < 65536; p++) {
+        uint32_t r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+        g_bgrx_lut[p] = (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
+    }
+    built = 1;
 }
+static uint32_t bgrx(uint16_t p) { return g_bgrx_lut[p]; }
 
 /* The presenter's 2x frame: frame16 is the 1x frame (16-bit, w x h, pitch in
  * bytes), out gets 2w x 2h BGRX. */
 void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* out) {
     static long matched[2], offered[2], logged_at;
+    bgrx_ready();
     for (int y = 0; y < h; y++) {
         const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
         uint32_t* o0 = out + (2 * y) * 2 * w, *o1 = o0 + 2 * w;
-        for (int x = 0; x < w; x++) {
-            uint32_t c = bgrx(row[x]);
-            o0[2 * x] = o0[2 * x + 1] = o1[2 * x] = o1[2 * x + 1] = c;
-        }
+        for (int x = 0; x < w; x++)
+            o0[2 * x] = o0[2 * x + 1] = g_bgrx_lut[row[x]];
+        memcpy(o1, o0, (size_t)2 * w * 4);        /* the second row is the first */
     }
     if (!HD_LIVE || !g_pub_lock_init) return;
     long got[2][2] = { { 0 } }, off[2][2] = { { 0 } };     /* [set][kind] */
@@ -801,4 +811,86 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
                 1000.0 * g_frame_ticks / hz.QuadPart / n, 1000.0 * g_hd_ticks / hz.QuadPart / n,
                 g_memo_hits + g_memo_misses, g_memo_hits, g_anim_renders);
     }
+}
+
+/* ---- the HD layer as a sparse overlay (hdvox.h) ------------------------------
+ * Same records and E-match as hdvox_compose, but no full-frame upscale: the
+ * presenter scales the 1x frame on the GPU, and this only writes the units'
+ * 2x pixels into ov (ARGB8888, opaque where shown, transparent elsewhere),
+ * over the records' rects, and clears last call's rects so a moved unit leaves
+ * nothing behind. *dx..*dh is the union of the two, the only region to upload. */
+static int g_ov_bx0, g_ov_by0, g_ov_bx1, g_ov_by1;   /* last call's 1x write bbox */
+
+int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
+                  int* odx, int* ody, int* odw, int* odh) {
+    *odx = *ody = *odw = *odh = 0;
+    if (!HD_LIVE || !g_pub_lock_init || !g_arena[0]) return 0;
+    bgrx_ready();
+    EnterCriticalSection(&g_pub_lock);
+    /* this call's 1x bounding box over both record sets, clipped to the frame */
+    int bx0 = w, by0 = h, bx1 = 0, by1 = 0;
+    for (int set = 0; set < 2; set++) {
+        const uint8_t* p = g_arena[set ? g_pub : g_prev];
+        size_t used = g_used[set ? g_pub : g_prev];
+        for (size_t at = 0; at < used;) {
+            const rec_t* r = (const rec_t*)(p + at);
+            int x0 = r->x < 0 ? 0 : r->x, y0 = r->y < 0 ? 0 : r->y;
+            int x1 = r->x + r->w > w ? w : r->x + r->w, y1 = r->y + r->h > h ? h : r->y + r->h;
+            if (x1 > x0 && y1 > y0) {
+                if (x0 < bx0) bx0 = x0;
+                if (y0 < by0) by0 = y0;
+                if (x1 > bx1) bx1 = x1;
+                if (y1 > by1) by1 = y1;
+            }
+            at += (sizeof(rec_t) + (size_t)r->w * r->h * 11 + 7) & ~(size_t)7;
+        }
+    }
+    /* clear the union of this box and the last one, so a unit that moved or
+     * left is erased; the cleared region is exactly what we re-upload */
+    int cx0 = bx0, cy0 = by0, cx1 = bx1, cy1 = by1;
+    if (g_ov_bx1 > g_ov_bx0) {
+        if (g_ov_bx0 < cx0) cx0 = g_ov_bx0;
+        if (g_ov_by0 < cy0) cy0 = g_ov_by0;
+        if (g_ov_bx1 > cx1) cx1 = g_ov_bx1;
+        if (g_ov_by1 > cy1) cy1 = g_ov_by1;
+    }
+    if (cx0 < 0) cx0 = 0;
+    if (cy0 < 0) cy0 = 0;
+    if (cx1 > w) cx1 = w;                              /* a shrunk resolution: clamp */
+    if (cy1 > h) cy1 = h;
+    g_ov_bx0 = bx0, g_ov_by0 = by0, g_ov_bx1 = bx1, g_ov_by1 = by1;
+    if (cx1 <= cx0 || cy1 <= cy0) { LeaveCriticalSection(&g_pub_lock); return 1; }  /* empty */
+    for (int y = 2 * cy0; y < 2 * cy1; y++)
+        memset(ov + (size_t)y * 2 * w + 2 * cx0, 0, (size_t)(cx1 - cx0) * 2 * 4);
+    /* the units' 2x pixels, older set first (pub over prev), where the frame
+     * still shows what the record expects */
+    for (int set = 0; set < 2; set++) {
+        const uint8_t* p = g_arena[set ? g_pub : g_prev];
+        size_t used = g_used[set ? g_pub : g_prev];
+        for (size_t at = 0; at < used;) {
+            const rec_t* r = (const rec_t*)(p + at);
+            int rw = r->w, rh = r->h;
+            const uint16_t* E = (const uint16_t*)(r + 1);
+            const uint16_t* O = E + rw * rh;
+            const uint8_t* m = (const uint8_t*)(O + 4 * rw * rh);
+            for (int j = 0; j < rh; j++) {
+                int y = r->y + j;
+                if (y < 0 || y >= h) continue;
+                const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
+                uint32_t* o0 = ov + (size_t)(2 * y) * 2 * w, *o1 = o0 + 2 * w;
+                for (int i = 0; i < rw; i++) {
+                    int x = r->x + i, k = j * rw + i;
+                    if (x < 0 || x >= w || !m[k] || row[x] != E[k]) continue;
+                    o0[2 * x]     = 0xFF000000u | bgrx(O[k * 4]);
+                    o0[2 * x + 1] = 0xFF000000u | bgrx(O[k * 4 + 1]);
+                    o1[2 * x]     = 0xFF000000u | bgrx(O[k * 4 + 2]);
+                    o1[2 * x + 1] = 0xFF000000u | bgrx(O[k * 4 + 3]);
+                }
+            }
+            at += (sizeof(rec_t) + (size_t)rw * rh * 11 + 7) & ~(size_t)7;
+        }
+    }
+    LeaveCriticalSection(&g_pub_lock);
+    *odx = 2 * cx0, *ody = 2 * cy0, *odw = 2 * (cx1 - cx0), *odh = 2 * (cy1 - cy0);
+    return 1;
 }
