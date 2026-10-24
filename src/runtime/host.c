@@ -762,7 +762,8 @@ int host_frame_hd(uint32_t* out, int maxw, int maxh, int* pw, int* ph) {
     if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
     EnterCriticalSection(&g_snap_lock);
     if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
-    int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
+    int N = ra2_vox_scale();
+    int ok = bpp == 16 && N * w <= maxw && N * h <= maxh;
     if (ok) hdvox_compose(g_snap, pitch, w, h, out);
     LeaveCriticalSection(&g_snap_lock);
     *pw = w;
@@ -782,7 +783,8 @@ int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* pw
     if (!ra2_vox_hd_on || !ra2_vox_hd_show) return 0;
     EnterCriticalSection(&g_snap_lock);
     if (!snapshot(&w, &h, &bpp, &pitch)) { LeaveCriticalSection(&g_snap_lock); return -1; }
-    int ok = bpp == 16 && 2 * w <= maxw && 2 * h <= maxh;
+    int N = ra2_vox_scale();                   /* 2 or 3; the Nx frame must fit maxw x maxh */
+    int ok = bpp == 16 && N * w <= maxw && N * h <= maxh;
     if (ok) {
         for (int y = 0; y < h; y++) {
             const uint16_t* src = (const uint16_t*)(g_snap + (size_t)y * pitch);
@@ -798,7 +800,7 @@ int host_frame_overlay(uint32_t* base, uint32_t* ov, int maxw, int maxh, int* pw
     LeaveCriticalSection(&g_snap_lock);
     *pw = w;
     *ph = h;
-    return ok;
+    return ok ? N : 0;                         /* the scale, for the presenter's Nx texture */
 }
 
 /* Headless with HD voxels: the presenter's 2x pictures, made at its pace (a
@@ -1312,6 +1314,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc && present_mode_from_name(argv[i + 1]) >= 0)
             g_scale_mode = present_mode_from_name(argv[++i]);
         else if (!strcmp(argv[i], "--debuglog")) g_debuglog = 1;
+        else if (!strcmp(argv[i], "--hd-scale") && i + 1 < argc) ra2_vox_set_scale(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--hd-voxels")) hdvox_configure(1, NULL);
         else if (!strcmp(argv[i], "--mute")) CloseHandle(CreateThread(NULL, 0, mute_thread, NULL, 0, NULL));
         else if (!strcmp(argv[i], "--hd-voxels-dump") && i + 1 < argc) {
@@ -1335,7 +1338,7 @@ int main(int argc, char** argv) {
             printf("usage: ra2 [--run] [--headless | --classic | [--fullscreen] [--scale sharp|smooth|crt|nearest|integer]] [--record out.mp4] [--frames N] [--exe game\\" RA2_EXE_NAME "] [--game game] [--mod NAME|none]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s] [--key [c][s][a]+vk@s] [--wait VA@s]\n"
                    "           [--watchdog S] [--probe VA] [--debuglog] [--original] [--native-trace] [--callbacks]\n"
-                   "           [--hd-voxels] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
+                   "           [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR] [--mute] [--args FILE]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }

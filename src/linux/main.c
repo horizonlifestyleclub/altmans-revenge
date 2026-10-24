@@ -352,7 +352,10 @@ static void settings_load(char *scale, size_t n, int *bars, int *full) {
         else if (!strcasecmp(line, "scale")) snprintf(scale, n, "%s", eq + 1);
         else if (!strcasecmp(line, "bars")) *bars = strcasecmp(eq + 1, "black") != 0;
         else if (!strcasecmp(line, "fullscreen")) *full = atoi(eq + 1);
-        else if (!strcasecmp(line, "hdvoxels")) g_saved_hd = atoi(eq + 1) != 0;
+        else if (!strcasecmp(line, "hdvoxels")) {         /* 0 off, 2 or 3 the scale; legacy 1 = 2x */
+            int v = atoi(eq + 1);
+            g_saved_hd = v == 1 ? 2 : v;
+        }
     }
     if (f) fclose(f);
 }
@@ -362,7 +365,7 @@ static void settings_save(const char *scale, int bars, int full) {
     FILE *f = g_ini[0] ? fopen(g_ini, "w") : NULL;
     if (!f) return;
     fprintf(f, "[present]\nscale=%s\nbars=%s\nfullscreen=%d\n", scale, bars ? "blur" : "black", full);
-    if (ra2_vox_hd_on) fprintf(f, "hdvoxels=%d\n", ra2_vox_hd_show);
+    if (ra2_vox_hd_on) fprintf(f, "hdvoxels=%d\n", ra2_vox_hd_show ? ra2_vox_scale() : 0);
     fprintf(f, "[mods]\nactive=%s\n", mods_active());
     fclose(f);
 }
@@ -432,6 +435,7 @@ int main(int argc, char **argv) {
             g_record = path;
         }
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) g_record_frames = strtol(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--hd-scale") && i + 1 < argc) ra2_vox_set_scale(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--hd-voxels")) hdvox_configure(1, NULL);
         else if (!strcmp(argv[i], "--hd-voxels-dump") && i + 1 < argc) {
             static char dir[PATH_MAX];               /* absolute: the run chdirs into the game folder */
@@ -447,7 +451,7 @@ int main(int argc, char **argv) {
             g_dump_dir = dir;                /* the run chdirs into the game folder */
         }
         else {
-            printf("usage: ra2 [--run] [--headless | --fullscreen] [--scale sharp|smooth|crt|nearest|integer] [--game DIR] [--mod NAME|none] [--debuglog] [--mute] [--watchdog S] [--trace] [--dump-frames DIR] [--record out.mp4] [--frames N] [--hd-voxels] [--hd-voxels-dump DIR]\n"
+            printf("usage: ra2 [--run] [--headless | --fullscreen] [--scale sharp|smooth|crt|nearest|integer] [--game DIR] [--mod NAME|none] [--debuglog] [--mute] [--watchdog S] [--trace] [--dump-frames DIR] [--record out.mp4] [--frames N] [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s]\n"
                    "           [--key [c][s][a]+vk@s] [--wait VA@s] [--drag x1,y1,x2,y2@s]\n");
             return !strcmp(argv[i], "--help") || !strcmp(argv[i], "-h") ? 0 : 1;
@@ -526,6 +530,7 @@ int main(int argc, char **argv) {
          * the game's voxel caches never fill (hdvox.h, issue #8). */
         if (!g_headless) {
             if (!ra2_vox_hd_on) ra2_vox_hd_show = g_saved_hd > 0;
+            if (g_saved_hd >= 2) ra2_vox_set_scale(g_saved_hd);   /* the scale ra2.ini remembered */
             ra2_vox_hd_on = 1;
             menu_start(settings_save_now);
         }

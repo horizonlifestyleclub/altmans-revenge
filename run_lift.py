@@ -130,8 +130,8 @@ def sidebar_rows_patches(code, cs, lo=0x006A5000, hi=0x006AD000, globals_=(0x008
 def _hd_passes(arg):
     """C for the three extra runs of 0x00754510, ecx = esp + arg each time."""
     return ('{ extern int ra2_vox_hd_begin(uint32_t); extern void ra2_vox_hd_pass(int); '
-            'extern uint32_t ra2_vox_hd_end(void); '
-            'if (ra2_vox_hd_begin(eax)) { for (int _k = 1; _k < 4; _k++) { ra2_vox_hd_pass(_k); '
+            'extern uint32_t ra2_vox_hd_end(void); extern int ra2_vox_hd_passes; '
+            'if (ra2_vox_hd_begin(eax)) { for (int _k = 1; _k <= ra2_vox_hd_passes; _k++) { ra2_vox_hd_pass(_k); '
             'ecx = esp + 0x%X; RECOMP_CALL(sub_00754510); } eax = ra2_vox_hd_end(); } } '
             '/* remaster: HD voxels, run_lift.py HD_VOXEL_PATCHES */' % arg)
 
@@ -142,8 +142,8 @@ def _hd_passes_7542f0():
     stack argument esp+0x1C (it returns with ret 4). Its outputs, esp+0x1C to
     esp+0x5C, are put back afterwards."""
     return ('{ extern int ra2_vox_hd_begin_at(uint32_t, uint32_t); extern void ra2_vox_hd_pass(int); '
-            'extern uint32_t ra2_vox_hd_end(void); uint32_t _eax = eax; '
-            'if (ra2_vox_hd_begin_at(esp + 0x1C, 0x40)) { for (int _k = 1; _k < 4; _k++) { ra2_vox_hd_pass(_k); '
+            'extern uint32_t ra2_vox_hd_end(void); extern int ra2_vox_hd_passes; uint32_t _eax = eax; '
+            'if (ra2_vox_hd_begin_at(esp + 0x1C, 0x40)) { for (int _k = 1; _k <= ra2_vox_hd_passes; _k++) { ra2_vox_hd_pass(_k); '
             'ecx = esp + 0x44; edx = esp + 0x20; esp -= 4; MEM32(esp) = esp + 4 + 0x1C; '
             'RECOMP_CALL(sub_007542F0); } ra2_vox_hd_end(); } eax = _eax; } '
             '/* remaster: HD voxels, run_lift.py HD_VOXEL_PATCHES */')

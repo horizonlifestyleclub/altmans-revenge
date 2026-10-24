@@ -108,15 +108,28 @@ static LARGE_INTEGER g_t0;
 static long long g_hd_ticks, g_frame_ticks, g_last_frame;   /* QueryPerformanceCounter */
 static const char* g_dump;
 static int g_dumped;
-static uint8_t g_pass[4][65536];          /* the four passes */
+#define HD_MAX 3                          /* highest supported scale (3x; 4x is not worth it) */
+#define HD_MAXD (256 * HD_MAX)            /* 768: the Nx voxel-buffer side at HD_MAX */
+static uint8_t g_pass[HD_MAX * HD_MAX][65536];   /* the N*N passes */
 static uint8_t g_depth[65536];
 static uint32_t g_bbox[5], g_rect[16], *g_rect_at, g_rect_len;   /* the caller's results, put back */
-uint8_t ra2_vox_hd[512 * 512];            /* the last part rendered, at 2x */
+uint8_t ra2_vox_hd[HD_MAXD * HD_MAXD];    /* the last part rendered, at up to HD_MAX */
 
-/* pass k's offset: half a pixel back, so its pixels sit at +1 in the 2x grid */
-static const int16_t k_off[4][2] = { { 0, 0 }, { -0x80, 0 }, { 0, -0x80 }, { -0x80, -0x80 } };
+/* HD voxels render at g_scale x (2 or 3). The game's rasterizer can't project
+ * bigger, so the finish stage runs N*N times, each span starting 1/N pixel
+ * further left, up or both; interleaved they are one image at Nx
+ * (docs/voxels.md). Everything downstream -- memo, stamps, records, compose,
+ * the overlay -- is sized by N; scale 2 is byte-identical to before.
+ * ra2_vox_hd_passes (= N*N-1) is read by the lift's pass loop (run_lift.py). */
+int ra2_vox_hd_passes = 3;                /* extra finish-stage runs = N*N-1 */
+static int g_scale = 2, g_stride = 512;   /* N, and 256*N (ra2_vox_hd row) */
+
+int ra2_vox_scale(void) { return g_scale; }
+void ra2_vox_set_scale(int n);            /* defined at the end; resets what was built at the old N */
 
 void hdvox_configure(int on, const char* dump_dir) {
+    const char* s = getenv("RA2_HD_SCALE");
+    if (s) ra2_vox_set_scale(atoi(s));    /* a dev override; the setting path calls set_scale too */
     ra2_vox_hd_on = on || dump_dir;
     g_dump = dump_dir;
     if (dump_dir) CreateDirectoryA(dump_dir, NULL);
@@ -206,8 +219,9 @@ static int hd_begin(uint32_t save, uint32_t len, int memo_ok) {
         g_key = memo_key();
         for (int i = 0; i < MEMO; i++)
             if (g_memo[i].px && g_memo[i].key == g_key && g_memo[i].w == g_mw && g_memo[i].h == g_mh) {
-                for (int y = 0; y < 2 * g_mh; y++)
-                    memcpy(ra2_vox_hd + (2 * g_my + y) * 512 + 2 * g_mx, g_memo[i].px + y * 2 * g_mw, 2 * g_mw);
+                for (int y = 0; y < g_scale * g_mh; y++)
+                    memcpy(ra2_vox_hd + (size_t)(g_scale * g_my + y) * g_stride + g_scale * g_mx,
+                           g_memo[i].px + (size_t)y * g_scale * g_mw, (size_t)g_scale * g_mw);
                 g_memo_hits++;
                 return 0;                         /* no passes: the game goes on with its 1x */
             }
@@ -228,39 +242,44 @@ void ra2_vox_hd_pass(int k) {
     if (k > 1) memcpy(g_pass[k - 1], VOX_COLOUR, 65536);
     memset(VOX_COLOUR, 0, 65536);                 /* as 0x00753E00 clears them */
     memset(VOX_DEPTH, 0, 65536);
-    ra2_vox_dx = k_off[k][0], ra2_vox_dy = k_off[k][1];
+    /* pass k sits at grid cell (k%N, k/N); its span starts 1/N pixel back per
+     * cell (8.8 fixed, 0x100 = one pixel), so its pixels land at that cell. */
+    int gx = k % g_scale, gy = k / g_scale;
+    ra2_vox_dx = (int16_t)(-(gx * 0x100 / g_scale));
+    ra2_vox_dy = (int16_t)(-(gy * 0x100 / g_scale));
 }
 
 uint32_t ra2_vox_hd_end(void) {
-    memcpy(g_pass[3], VOX_COLOUR, 65536);
+    memcpy(g_pass[ra2_vox_hd_passes], VOX_COLOUR, 65536);   /* the last pass */
     ra2_vox_dx = ra2_vox_dy = 0;
     memcpy(VOX_COLOUR, g_pass[0], 65536);         /* the game's own 1x render, as it was */
     memcpy(VOX_DEPTH, g_depth, 65536);
     memcpy(VOX_BBOX, g_bbox, sizeof g_bbox);
     memcpy(g_rect_at, g_rect, g_rect_len);
-    for (int k = 0; k < 4; k++) {
-        int dx = k & 1, dy = k >> 1;
+    for (int k = 0; k <= ra2_vox_hd_passes; k++) {   /* interleave N*N passes into the 256N square */
+        int gx = k % g_scale, gy = k / g_scale;
         for (int y = 0; y < 256; y++)
             for (int x = 0; x < 256; x++)
-                ra2_vox_hd[(2 * y + dy) * 512 + 2 * x + dx] = g_pass[k][y * 256 + x];
+                ra2_vox_hd[(g_scale * y + gy) * g_stride + g_scale * x + gx] = g_pass[k][y * 256 + x];
     }
-    if (g_key) {                                  /* remember it */
+    if (g_key) {                                  /* remember it (scale 2 only) */
         memo_t* m = &g_memo[g_memo_next];
         g_memo_next = (g_memo_next + 1) % MEMO;
         free(m->px);
-        m->px = (uint8_t*)malloc((size_t)4 * g_mw * g_mh);
+        m->px = (uint8_t*)malloc((size_t)g_scale * g_scale * g_mw * g_mh);
         if (m->px) {
             m->key = g_key, m->w = g_mw, m->h = g_mh;
-            for (int y = 0; y < 2 * g_mh; y++)
-                memcpy(m->px + y * 2 * g_mw, ra2_vox_hd + (2 * g_my + y) * 512 + 2 * g_mx, 2 * g_mw);
+            for (int y = 0; y < g_scale * g_mh; y++)
+                memcpy(m->px + (size_t)y * g_scale * g_mw,
+                       ra2_vox_hd + (size_t)(g_scale * g_my + y) * g_stride + g_scale * g_mx, (size_t)g_scale * g_mw);
         }
     }
     if (g_dump && g_dumped < 40) {
         char path[MAX_PATH];
         _snprintf(path, sizeof path - 1, "%s/vox_%02d_1x.bmp", g_dump, g_dumped), path[sizeof path - 1] = 0;
         write_bmp(path, g_pass[0], 256, 256);
-        _snprintf(path, sizeof path - 1, "%s/vox_%02d_2x.bmp", g_dump, g_dumped), path[sizeof path - 1] = 0;
-        write_bmp(path, ra2_vox_hd, 512, 512);
+        _snprintf(path, sizeof path - 1, "%s/vox_%02d_%dx.bmp", g_dump, g_dumped, g_scale), path[sizeof path - 1] = 0;
+        write_bmp(path, ra2_vox_hd, g_stride, 256 * g_scale);
         g_dumped++;
     }
     g_busy = 0;
@@ -277,7 +296,7 @@ uint32_t ra2_vox_hd_end(void) {
 typedef struct {
     int x, y, w, h;                       /* on staging */
     uint8_t before[65536], after[65536];  /* w*h each */
-    uint8_t hd[4 * 65536];                /* (2w)x(2h), remapped; 0 transparent */
+    uint8_t hd[HD_MAX * HD_MAX * 65536];  /* (Nw)x(Nh), remapped; 0 transparent */
 } stamp_t;
 
 #define MAX_STAMPS 8
@@ -330,7 +349,7 @@ void ra2_vox_hd_blitted(void) {
         g_direct_open = 0;
         if (dsurf_read(g_dir_dest, g_dir_x, g_dir_y, g_dir_w, g_dir_h, g_after))
             record_image(g_dir_x, g_dir_y, g_dir_w, g_dir_h, VOX_COLOUR + g_dir_sy * 256 + g_dir_sx, 256,
-                         ra2_vox_hd + 2 * g_dir_sy * 512 + 2 * g_dir_sx, 512);
+                         ra2_vox_hd + (size_t)g_scale * g_dir_sy * g_stride + g_scale * g_dir_sx, g_stride);
         g_direct++;
         return;
     }
@@ -346,21 +365,23 @@ void ra2_vox_hd_blitted(void) {
             uint8_t v = VOX_COLOUR[(g_src_y + j) * 256 + g_src_x + i];
             if (v && !known[v]) remap[v] = s->after[j * s->w + i], known[v] = 1;
         }
-    int w2 = 2 * s->w;
-    for (int j = 0; j < 2 * s->h; j++)
+    int N = g_scale, w2 = N * s->w;
+    for (int j = 0; j < N * s->h; j++)
         for (int i = 0; i < w2; i++) {
-            uint8_t v = ra2_vox_hd[(2 * g_src_y + j) * 512 + 2 * g_src_x + i];
+            uint8_t v = ra2_vox_hd[(size_t)(N * g_src_y + j) * g_stride + N * g_src_x + i];
             /* an index the 1x part never used: its 1x pixel's colour */
-            s->hd[j * w2 + i] = !v ? 0 : known[v] ? remap[v] : s->after[(j / 2) * s->w + i / 2];
+            s->hd[j * w2 + i] = !v ? 0 : known[v] ? remap[v] : s->after[(j / N) * s->w + i / N];
         }
     g_nstamps++;
 }
 
 /* ---- 3. the unit onto the battlefield ----------------------------------------------- */
 
-typedef struct { int16_t x, y, w, h, kind, pad; } rec_t;   /* kind 0 unit, 1 shadow; then E[w*h], O[4*w*h] (uint16), m[w*h] */
+typedef struct { int16_t x, y, w, h, kind, pad; } rec_t;   /* kind 0 unit, 1 shadow; then E[w*h], O[N*N*w*h] (uint16), m[w*h] */
 
-#define ARENA (24u << 20)
+/* per-record pixel bytes: E (2) + O (2*N*N) + m (1). Sized for HD_MAX so a live
+ * scale change never under-allocates; ~24MB at 2x, ~48MB at 3x, per arena. */
+#define ARENA ((24u << 20) / 11u * (3u + 2u * HD_MAX * HD_MAX))
 /* Three arenas: the one being built this frame, the last published, and the
  * one before it. The presenter copies the frame, then reads the records, on
  * its own thread: a frame published in between paired the old picture with
@@ -375,12 +396,17 @@ static CRITICAL_SECTION g_pub_lock;
 static int g_pub_lock_init;
 static long g_records, g_published_frames;
 
+/* Test hook: the publish counter, to tell a compose/overlay pair apart from one
+ * split by a publish in between (an apples-to-apples pixel compare, hdvox tests). */
+long hdvox_pubseq(void) { return g_published_frames; }
+
 static size_t g_need;
 
 /* A record of w x h battlefield pixels at (x, y): E what the frame should
  * show at 1x, O the four 2x pixels, m which pixels count. NULL when full. */
 static rec_t* rec_new(int x, int y, int w, int h, uint16_t** E, uint16_t** O, uint8_t** m) {
-    g_need = sizeof(rec_t) + (size_t)w * h * (2 + 8 + 1);
+    int NN = g_scale * g_scale;
+    g_need = sizeof(rec_t) + (size_t)w * h * (2 + 2 * NN + 1);
     if (!g_arena[0]) {
         for (int k = 0; k < 3; k++) g_arena[k] = (uint8_t*)VirtualAlloc(NULL, ARENA, MEM_COMMIT, PAGE_READWRITE);
         if (!g_arena[0] || !g_arena[1] || !g_arena[2]) { ra2_vox_hd_on = 0; return NULL; }
@@ -389,7 +415,7 @@ static rec_t* rec_new(int x, int y, int w, int h, uint16_t** E, uint16_t** O, ui
     rec_t* r = (rec_t*)(g_arena[g_build] + g_used[g_build]);
     *E = (uint16_t*)(r + 1);
     *O = *E + w * h;
-    *m = (uint8_t*)(*O + 4 * w * h);
+    *m = (uint8_t*)(*O + (size_t)NN * w * h);
     r->x = (int16_t)x, r->y = (int16_t)y, r->w = (int16_t)w, r->h = (int16_t)h, r->kind = 0, r->pad = 0;
     return r;
 }
@@ -438,6 +464,7 @@ static void record_image(int x, int y, int w, int h, const uint8_t* idx1, int s1
     uint16_t *E, *O;
     uint8_t* m;
     if (!rec_new(x, y, w, h, &E, &O, &m)) return;
+    int N = g_scale, NN = N * N;
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++) {
             int p = j * w + i;
@@ -445,11 +472,11 @@ static void record_image(int x, int y, int w, int h, const uint8_t* idx1, int s1
             m[p] = f != b && idx1[j * s1 + i];
             E[p] = f;
             if (!m[p]) continue;
-            for (int q = 0; q < 4; q++) {
-                uint8_t v = idx2[(2 * j + (q >> 1)) * s2 + 2 * i + (q & 1)];
-                /* transparent at 2x: what was there before; an index the 1x
+            for (int q = 0; q < NN; q++) {
+                uint8_t v = idx2[(size_t)(N * j + q / N) * s2 + N * i + q % N];
+                /* transparent at Nx: what was there before; an index the 1x
                  * image never used: the 1x pixel */
-                O[p * 4 + q] = !v ? b : known[v] ? col[v] : f;
+                O[p * NN + q] = !v ? b : known[v] ? col[v] : f;
             }
         }
     rec_commit();
@@ -531,17 +558,18 @@ void ra2_vox_unit_copy(uint32_t dest, uint32_t esp) {
 }
 
 void ra2_vox_unit_copied(void) {
-    static uint8_t s2[512 * 512];                 /* staging at 2x, for this unit */
+    static uint8_t s2[HD_MAXD * HD_MAXD];          /* staging at Nx, for this unit (w,h <= 256) */
     if (!g_copy_open) return;
     g_copy_open = 0;
+    int N = g_scale, SW = g_stride;                /* s2 row stride = N*256 */
     int w = g_cw, h = g_ch, sx = g_sx, sy = g_sy;
     const uint8_t* st = staging_px();
     if (!st || !dsurf_read(g_copy_dest, g_cx, g_cy, w, h, g_after)) { g_nstamps = 0; return; }
-    /* staging at 2x: each pixel four times, then the stamps' 2x pixels where
-     * the stamp's own 1x pixel is still there (a later part did not cover it) */
-    for (int j = 0; j < 2 * h; j++)
-        for (int i = 0; i < 2 * w; i++)
-            s2[j * 512 + i] = st[(sy + j / 2) * 256 + sx + i / 2];
+    /* staging at Nx: each pixel N*N times, then the stamps' Nx pixels where the
+     * stamp's own 1x pixel is still there (a later part did not cover it) */
+    for (int j = 0; j < N * h; j++)
+        for (int i = 0; i < N * w; i++)
+            s2[j * SW + i] = st[(sy + j / N) * 256 + sx + i / N];
     for (int k = 0; k < g_nstamps; k++) {
         const stamp_t* s = &g_stamps[k];
         for (int j = 0; j < s->h; j++)
@@ -552,15 +580,16 @@ void ra2_vox_unit_copied(void) {
                 uint8_t was = s->before[j * s->w + i], put = s->after[j * s->w + i];
                 if (now != put) continue;                      /* covered later */
                 int wrote = put != was;
-                for (int q = 0; q < 4; q++) {
-                    uint8_t v = s->hd[(2 * j + (q >> 1)) * 2 * s->w + 2 * i + (q & 1)];
-                    if (v) s2[(2 * py + (q >> 1)) * 512 + 2 * px + (q & 1)] = v;
-                    else if (wrote) s2[(2 * py + (q >> 1)) * 512 + 2 * px + (q & 1)] = was;
+                for (int q = 0; q < N * N; q++) {
+                    int qx = q % N, qy = q / N;
+                    uint8_t v = s->hd[(N * j + qy) * (N * s->w) + N * i + qx];
+                    if (v) s2[(N * py + qy) * SW + N * px + qx] = v;
+                    else if (wrote) s2[(N * py + qy) * SW + N * px + qx] = was;
                 }
             }
     }
     g_nstamps = 0;
-    record_image(g_cx, g_cy, w, h, st + sy * 256 + sx, 256, s2, 512);
+    record_image(g_cx, g_cy, w, h, st + sy * 256 + sx, 256, s2, SW);
 }
 
 /* ---- 3b. shadows --------------------------------------------------------------------- */
@@ -617,11 +646,11 @@ void ra2_vox_shadow_blitted(void) {
      * stipples, and interleaved they read as a checkerboard. At 2x the
      * shadow is their union with the holes closed (dilate, then erode, 3x3):
      * a solid shadow with a 2x edge. */
-    static uint8_t u[2 * 256 * 2 * 256], t[2 * 256 * 2 * 256];
-    int W = 2 * w, H = 2 * h;
+    static uint8_t u[HD_MAXD * HD_MAXD], t[HD_MAXD * HD_MAXD];
+    int N = g_scale, W = N * w, H = N * h;
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++)
-            u[y * W + x] = ra2_vox_hd[(2 * sy + y) * 512 + 2 * sx + x] != 0;
+            u[y * W + x] = ra2_vox_hd[(size_t)(N * sy + y) * g_stride + N * sx + x] != 0;
     for (int pass = 0; pass < 2; pass++) {       /* 0 dilate u -> t, 1 erode t -> u */
         const uint8_t* src = pass ? t : u;
         uint8_t* dst = pass ? u : t;
@@ -647,11 +676,11 @@ void ra2_vox_shadow_blitted(void) {
             int dark1 = f != b;
             E[p] = f;
             m[p] = 0;
-            for (int q = 0; q < 4; q++) {
-                int in = u[(2 * j + (q >> 1)) * W + 2 * i + (q & 1)];
+            for (int q = 0; q < N * N; q++) {
+                int in = u[(N * j + q / N) * W + N * i + q % N];
                 uint16_t v = !in ? b : dark1 ? f : is_half ? half565(b) : f;
-                O[p * 4 + q] = v;
-                m[p] |= v != f;                   /* only where 2x differs from 1x */
+                O[p * N * N + q] = v;
+                m[p] |= v != f;                   /* only where Nx differs from 1x */
             }
         }
     rec_commit();
@@ -742,17 +771,20 @@ static void bgrx_ready(void) {
 }
 static uint32_t bgrx(uint16_t p) { return g_bgrx_lut[p]; }
 
-/* The presenter's 2x frame: frame16 is the 1x frame (16-bit, w x h, pitch in
- * bytes), out gets 2w x 2h BGRX. */
+/* The presenter's Nx frame: frame16 is the 1x frame (16-bit, w x h, pitch in
+ * bytes), out gets Nw x Nh BGRX (N = ra2_vox_scale()). */
 void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* out) {
     static long matched[2], offered[2], logged_at;
+    int N = g_scale, NN = N * N, W = N * w;
     bgrx_ready();
     for (int y = 0; y < h; y++) {
         const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
-        uint32_t* o0 = out + (2 * y) * 2 * w, *o1 = o0 + 2 * w;
-        for (int x = 0; x < w; x++)
-            o0[2 * x] = o0[2 * x + 1] = g_bgrx_lut[row[x]];
-        memcpy(o1, o0, (size_t)2 * w * 4);        /* the second row is the first */
+        uint32_t* o0 = out + (size_t)(N * y) * W;
+        for (int x = 0; x < w; x++) {
+            uint32_t c = g_bgrx_lut[row[x]];
+            for (int qx = 0; qx < N; qx++) o0[N * x + qx] = c;
+        }
+        for (int ry = 1; ry < N; ry++) memcpy(o0 + (size_t)ry * W, o0, (size_t)W * 4);   /* copy the first row down */
     }
     if (!HD_LIVE || !g_pub_lock_init) return;
     long got[2][2] = { { 0 } }, off[2][2] = { { 0 } };     /* [set][kind] */
@@ -765,23 +797,23 @@ void hdvox_compose(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ou
             int rw = r->w, rh = r->h;
             const uint16_t* E = (const uint16_t*)(r + 1);
             const uint16_t* O = E + rw * rh;
-            const uint8_t* m = (const uint8_t*)(O + 4 * rw * rh);
+            const uint8_t* m = (const uint8_t*)(O + (size_t)NN * rw * rh);
             for (int j = 0; j < rh; j++) {
                 int y = r->y + j;
                 if (y < 0 || y >= h) continue;
                 const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
-                uint32_t* o0 = out + (2 * y) * 2 * w, *o1 = o0 + 2 * w;
+                uint32_t* base = out + (size_t)(N * y) * W;
                 for (int i = 0; i < rw; i++) {
                     int x = r->x + i, k = j * rw + i;
                     if (x < 0 || x >= w || !m[k]) continue;
                     off[set][r->kind]++;
                     if (row[x] != E[k]) continue;      /* drawn over since */
                     got[set][r->kind]++;
-                    o0[2 * x] = bgrx(O[k * 4]), o0[2 * x + 1] = bgrx(O[k * 4 + 1]);
-                    o1[2 * x] = bgrx(O[k * 4 + 2]), o1[2 * x + 1] = bgrx(O[k * 4 + 3]);
+                    for (int q = 0; q < NN; q++)
+                        base[(size_t)(q / N) * W + N * x + q % N] = bgrx(O[k * NN + q]);
                 }
             }
-            at += (sizeof(rec_t) + (size_t)rw * rh * 11 + 7) & ~(size_t)7;
+            at += (sizeof(rec_t) + (size_t)rw * rh * (3 + 2 * NN) + 7) & ~(size_t)7;
         }
     }
     LeaveCriticalSection(&g_pub_lock);
@@ -825,6 +857,7 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
                   int* odx, int* ody, int* odw, int* odh) {
     *odx = *ody = *odw = *odh = 0;
     if (!HD_LIVE || !g_pub_lock_init || !g_arena[0]) return 0;
+    int N = g_scale, NN = N * N, W = N * w;
     bgrx_ready();
     EnterCriticalSection(&g_pub_lock);
     /* this call's 1x bounding box over both record sets, clipped to the frame */
@@ -842,7 +875,7 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
                 if (x1 > bx1) bx1 = x1;
                 if (y1 > by1) by1 = y1;
             }
-            at += (sizeof(rec_t) + (size_t)r->w * r->h * 11 + 7) & ~(size_t)7;
+            at += (sizeof(rec_t) + (size_t)r->w * r->h * (3 + 2 * NN) + 7) & ~(size_t)7;
         }
     }
     /* clear the union of this box and the last one, so a unit that moved or
@@ -859,10 +892,10 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
     if (cx1 > w) cx1 = w;                              /* a shrunk resolution: clamp */
     if (cy1 > h) cy1 = h;
     g_ov_bx0 = bx0, g_ov_by0 = by0, g_ov_bx1 = bx1, g_ov_by1 = by1;
-    if (cx1 <= cx0 || cy1 <= cy0) { LeaveCriticalSection(&g_pub_lock); return 1; }  /* empty */
-    for (int y = 2 * cy0; y < 2 * cy1; y++)
-        memset(ov + (size_t)y * 2 * w + 2 * cx0, 0, (size_t)(cx1 - cx0) * 2 * 4);
-    /* the units' 2x pixels, older set first (pub over prev), where the frame
+    if (cx1 <= cx0 || cy1 <= cy0) { LeaveCriticalSection(&g_pub_lock); return N; }  /* empty */
+    for (int y = N * cy0; y < N * cy1; y++)
+        memset(ov + (size_t)y * W + N * cx0, 0, (size_t)(cx1 - cx0) * N * 4);
+    /* the units' Nx pixels, older set first (pub over prev), where the frame
      * still shows what the record expects */
     for (int set = 0; set < 2; set++) {
         const uint8_t* p = g_arena[set ? g_pub : g_prev];
@@ -872,25 +905,42 @@ int hdvox_overlay(const uint8_t* frame16, int pitch, int w, int h, uint32_t* ov,
             int rw = r->w, rh = r->h;
             const uint16_t* E = (const uint16_t*)(r + 1);
             const uint16_t* O = E + rw * rh;
-            const uint8_t* m = (const uint8_t*)(O + 4 * rw * rh);
+            const uint8_t* m = (const uint8_t*)(O + (size_t)NN * rw * rh);
             for (int j = 0; j < rh; j++) {
                 int y = r->y + j;
                 if (y < 0 || y >= h) continue;
                 const uint16_t* row = (const uint16_t*)(frame16 + y * pitch);
-                uint32_t* o0 = ov + (size_t)(2 * y) * 2 * w, *o1 = o0 + 2 * w;
+                uint32_t* base = ov + (size_t)(N * y) * W;
                 for (int i = 0; i < rw; i++) {
                     int x = r->x + i, k = j * rw + i;
                     if (x < 0 || x >= w || !m[k] || row[x] != E[k]) continue;
-                    o0[2 * x]     = 0xFF000000u | bgrx(O[k * 4]);
-                    o0[2 * x + 1] = 0xFF000000u | bgrx(O[k * 4 + 1]);
-                    o1[2 * x]     = 0xFF000000u | bgrx(O[k * 4 + 2]);
-                    o1[2 * x + 1] = 0xFF000000u | bgrx(O[k * 4 + 3]);
+                    for (int q = 0; q < NN; q++)
+                        base[(size_t)(q / N) * W + N * x + q % N] = 0xFF000000u | bgrx(O[k * NN + q]);
                 }
             }
-            at += (sizeof(rec_t) + (size_t)rw * rh * 11 + 7) & ~(size_t)7;
+            at += (sizeof(rec_t) + (size_t)rw * rh * (3 + 2 * NN) + 7) & ~(size_t)7;
         }
     }
     LeaveCriticalSection(&g_pub_lock);
-    *odx = 2 * cx0, *ody = 2 * cy0, *odw = 2 * (cx1 - cx0), *odh = 2 * (cy1 - cy0);
-    return 1;
+    *odx = N * cx0, *ody = N * cy0, *odw = N * (cx1 - cx0), *odh = N * (cy1 - cy0);
+    return N;
+}
+
+/* Set the HD render scale (2 or 3). Records, stamps and the memo are all
+ * N-shaped, so a change drops what was built at the old N; the presenter
+ * resizes its Nx texture when the dirty rect's dimensions change. Safe to call
+ * before anything is rendered (the setting path and --hd-voxels do). */
+void ra2_vox_set_scale(int n) {
+    if (n < 2) n = 2;
+    if (n > HD_MAX) n = HD_MAX;
+    if (n == g_scale) return;
+    g_scale = n;
+    g_stride = 256 * n;
+    ra2_vox_hd_passes = n * n - 1;
+    for (int i = 0; i < MEMO; i++) { free(g_memo[i].px); g_memo[i].px = 0; }
+    if (g_pub_lock_init) EnterCriticalSection(&g_pub_lock);
+    g_used[0] = g_used[1] = g_used[2] = 0;
+    if (g_pub_lock_init) LeaveCriticalSection(&g_pub_lock);
+    g_nstamps = 0;
+    g_ov_bx0 = g_ov_by0 = g_ov_bx1 = g_ov_by1 = 0;
 }

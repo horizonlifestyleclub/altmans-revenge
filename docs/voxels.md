@@ -64,23 +64,32 @@ drawn. Three entries were affected (`0x007DF9C0`, `0x007DFAE0`,
 ## HD voxels
 
 With HD voxels on (the presenter's settings menu, F10; `--hd-voxels`),
-vehicles are drawn at twice the resolution of the rest of the picture. The
-game is untouched: everything it draws, reads and caches is what it would
-have been, and the 2x pixels exist only in the presenter's frame.
+vehicles are drawn at twice or three times the resolution of the rest of the
+picture (the menu's Off / 2x / 3x, kept in `ra2.ini`; `--hd-scale 2|3`, or
+`RA2_HD_SCALE`). 3x is noticeably sharper and costs a little more; 4x was
+tried and is not worth it. The game is untouched: everything it draws, reads
+and caches is what it would have been, and the Nx pixels exist only in the
+presenter's frame.
 
 ![1x and 2x](screenshots/hd-voxels.png)
 
 *Left, the frame scaled up; right, the same frame with HD voxels.*
 
-**Rendering at 2x.** A plain 2x projection is out: the rasterizers walk 8.8
+**Rendering at Nx.** A plain scaled projection is out: the rasterizers walk 8.8
 fixed point in a 256-wide buffer and plot each voxel as a fixed splat, so a
 bigger image overflows their coordinates and leaves holes between voxels.
-Instead the render's finish stage (`0x00754510`, records to pixels) runs three
-more times with every span starting half a pixel further left, up, or both
-(the span record's starts at `+0x18`/`+0x1A`, patched at `0x0075683E`). Each
-pass is a complete, hole-free 1x render of the model sampled at a different
-offset; interleaved, the four are one image at 2x. The finish stage is only
-the last step, so the passes cost little: about 1 ms a frame in a skirmish.
+Instead the render's finish stage (`0x00754510`, records to pixels) runs
+`N*N-1` more times (`ra2_vox_hd_passes`, read by the lift's pass loop), every
+span starting `1/N` pixel further left, up, or both (the span record's starts
+at `+0x18`/`+0x1A`, patched at `0x0075683E`; `ra2_vox_dx`/`dy`). Each pass is a
+complete, hole-free 1x render of the model sampled at a different offset;
+interleaved, the `N*N` are one image at Nx. The finish stage is only the last
+step, so the passes cost little, and they are memoed (99.99% hits), so the
+extra passes almost never run: about 1 ms a frame at 2x, ~2 at 3x, on a miss.
+Everything downstream -- the memo, the stamps, the records, `hdvox_compose`
+and the sparse `hdvox_overlay` -- is sized by N; 2x is byte-for-byte what it
+was. Proven at both scales by the headless overlay-vs-compose check: 0
+mismatches over tens of billions of pixels.
 
 **Following the image onto the battlefield.** A unit is built in a 256x256
 staging surface (`[0x00B1D13C]`): each part (body, turret, barrel) is blitted
@@ -179,9 +188,9 @@ minute of right-drag scrolling, wants none, and 90% of the units' pixels at
 on macOS, and on Windows 24 with the first alone; with all three, 0 on Linux
 and macOS (Windows: 0 in a shorter run).
 
-The 2x frame needs twice the game's resolution to fit the presenter's
-4096x2160 frame: up to 2048x1080; above that the presenter shows the 1x
-frame.
+The Nx frame needs N times the game's resolution to fit the presenter's
+4096x2160 frame: up to 2048x1080 at 2x, about 1365x720 at 3x; above that the
+presenter shows the 1x frame (host.c/screen.c cap on `N*w`, `N*h`).
 
 **Voxel animations and debris** (`VoxelAnimClass::Draw_It`, `0x00749B70`)
 render a shadow and a body, each through a second finish stage,

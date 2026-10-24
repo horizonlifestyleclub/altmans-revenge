@@ -556,7 +556,11 @@ static void settings_save(HWND hw) {
     WritePrivateProfileStringA("present", "fullscreen", g_fullscreen ? "1" : "0", g_ini);
     WritePrivateProfileStringA("present", "controls",
         InterlockedCompareExchange(&g_modern_controls, 0, 0) ? "modern" : "classic", g_ini);
-    WritePrivateProfileStringA("present", hdvox_key(), ra2_vox_hd_show ? "1" : "0", g_ini);
+    {
+        char hv[8];
+        _snprintf(hv, sizeof hv - 1, "%d", ra2_vox_hd_show ? ra2_vox_scale() : 0), hv[sizeof hv - 1] = 0;
+        WritePrivateProfileStringA("present", hdvox_key(), hv, g_ini);   /* 0 off, 2 or 3 the scale */
+    }
     if (hw && !g_fullscreen && !IsIconic(hw)) {
         RECT r;
         GetWindowRect(hw, &r);
@@ -591,6 +595,7 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     HMENU m = CreatePopupMenu(), sc = CreatePopupMenu(), bars = CreatePopupMenu(), res = CreatePopupMenu();
     HMENU mods = CreatePopupMenu();
     HMENU controls = CreatePopupMenu();
+    HMENU hd = CreatePopupMenu();
     static char mod_names[MAX_MENU_MODS][128];
     int nmods = mods_list(mod_names, MAX_MENU_MODS);
     static const char* const scale_label[NMODES] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
@@ -607,7 +612,13 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     AppendMenuA(m, MF_POPUP, (UINT_PTR)sc, "Scaling\tF12");
     AppendMenuA(m, MF_POPUP, (UINT_PTR)bars, "Bars beside the picture");
     AppendMenuA(m, MF_STRING | (g_fullscreen ? MF_CHECKED : 0), ID_FULL, "Fullscreen\tF11");
-    AppendMenuA(m, MF_STRING | (ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "HD vehicles (voxels at 2x)");
+    {
+        int hdsc = ra2_vox_scale();
+        AppendMenuA(hd, MF_STRING | (!ra2_vox_hd_show ? MF_CHECKED : 0), ID_HDVOX, "Off");
+        AppendMenuA(hd, MF_STRING | (ra2_vox_hd_show && hdsc == 2 ? MF_CHECKED : 0), ID_HDVOX + 1, "On, 2x");
+        AppendMenuA(hd, MF_STRING | (ra2_vox_hd_show && hdsc == 3 ? MF_CHECKED : 0), ID_HDVOX + 2, "On, 3x (sharper, slower)");
+        AppendMenuA(m, MF_POPUP, (UINT_PTR)hd, "HD vehicles (voxels)");
+    }
     AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? 0 : MF_CHECKED),
                 ID_CONTROLS, "Classic");
     AppendMenuA(controls, MF_STRING | (InterlockedCompareExchange(&g_modern_controls, 0, 0) ? MF_CHECKED : 0),
@@ -627,7 +638,10 @@ static void settings_menu(HWND hw) {             /* at the mouse */
     if (cmd >= ID_SCALE && cmd < ID_SCALE + NMODES) g_mode = cmd - ID_SCALE;
     else if (cmd == ID_BARS || cmd == ID_BARS + 1) g_bars = cmd - ID_BARS;
     else if (cmd == ID_FULL) set_fullscreen(hw, !g_fullscreen);
-    else if (cmd == ID_HDVOX) ra2_vox_hd_show = !ra2_vox_hd_show;  /* takes effect next frame */
+    else if (cmd >= ID_HDVOX && cmd <= ID_HDVOX + 2) {            /* Off / 2x / 3x, next frame */
+        if (cmd == ID_HDVOX) ra2_vox_hd_show = 0;
+        else { ra2_vox_set_scale(cmd == ID_HDVOX + 2 ? 3 : 2); ra2_vox_hd_show = 1; }
+    }
     else if (cmd == ID_CONTROLS || cmd == ID_CONTROLS + 1)
         InterlockedExchange(&g_modern_controls, cmd - ID_CONTROLS);
     else if (cmd >= ID_RES && cmd < ID_RES + NRES) set_game_resolution(k_res[cmd - ID_RES][0], k_res[cmd - ID_RES][1]);
@@ -879,7 +893,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
         int hd = host_frame_overlay(frame, ovbuf, 4096, 2160, &gw, &gh, &dx, &dy, &dw, &dh);
         if (hd < 0) {                              /* locked: the last picture stays */
             Sleep(1);
-        } else if (hd) {                           /* 1x base + 2x overlay */
+        } else if (hd) {                           /* 1x base + Nx overlay (hd = N) */
             int full = gw;
             gw = cut_menu_band(frame, gw, gh, 1);  /* the base is 1x now */
             InterlockedExchange(&g_gw, gw);
@@ -888,7 +902,7 @@ static DWORD WINAPI present_thread(LPVOID arg) {
             if (gw != full)                        /* a menu band was cut: no units behind it */
                 draw(frame, gw, gh, NULL, 0, 0, 0, 0, 0, 0);
             else
-                draw(frame, gw, gh, ovbuf, 2 * gw, 2 * gh, dx, dy, dw, dh);
+                draw(frame, gw, gh, ovbuf, hd * gw, hd * gh, dx, dy, dw, dh);
             QueryPerformanceCounter(&t2);
             frame_stats(t0, t1, t2);
         } else if (host_frame(frame, 4096, 2160, &gw, &gh)) {
@@ -926,8 +940,12 @@ void present_start(int mode, int fullscreen) {
     GetPrivateProfileStringA("present", "controls", "classic", v, sizeof v, g_ini);
     InterlockedExchange(&g_modern_controls, !_stricmp(v, "modern"));
     if (fullscreen < 0) fullscreen = GetPrivateProfileIntA("present", "fullscreen", 0, g_ini);
-    if (!ra2_vox_hd_on)                     /* --hd-voxels forces it */
-        ra2_vox_hd_show = GetPrivateProfileIntA("present", hdvox_key(), !host_under_wine(), g_ini);
+    if (!ra2_vox_hd_on) {                   /* --hd-voxels forces it; the ini holds 0 off, 2/3 scale */
+        int hv = GetPrivateProfileIntA("present", hdvox_key(), host_under_wine() ? 0 : 2, g_ini);
+        if (hv == 1) hv = 2;                /* legacy on = 2x */
+        ra2_vox_hd_show = hv > 0;
+        if (hv >= 2) ra2_vox_set_scale(hv);
+    }
     ra2_vox_hd_on = 1;                      /* on or off, F10 can switch them on (hdvox.h) */
     if (mode >= 0) g_mode = mode;
     input_live(1);
