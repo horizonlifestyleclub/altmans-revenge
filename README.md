@@ -81,7 +81,7 @@ for fullscreen.
 
 ## Status
 
-**v0.1.0-alpha.1, playable.** Both games lift with 0 errors and play: the
+**v0.1.0, playable.** Both games lift with 0 errors and play: the
 intro, every menu, skirmishes from setup to the score screen, and both
 campaigns, 720p to 4K. A scripted playtest suite checks it: 30 of 30 for each
 game on Windows, natively on Linux and macOS.

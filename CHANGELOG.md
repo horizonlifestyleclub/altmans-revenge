@@ -5,6 +5,23 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-24
+
+### Added
+- Native build: `WITH_FFMPEG=OFF` drops the Bink movie player (and its
+  dependency) so hosts where 32-bit ffmpeg is hard to get can still build --
+  Arch in particular, where `lib32-ffmpeg` is AUR-only. The movies are
+  skipped; everything else is unaffected (#28, reported by @bongjutsu).
+
+### Changed
+- HD vehicles are much cheaper to draw. They were upscaled as a whole 2x
+  image on the CPU every frame; now the renderer scales the 1x picture (free,
+  on the GPU) and the CPU supplies only the units' 2x pixels as an overlay.
+  On native x86 at 1080p that cut the per-frame cost from ~3.5 ms to ~0.43 ms
+  (-88%), pixel-for-pixel identical to before, which should take most of the
+  "chug" out of HD vehicles. The native path needs a current pcrecomp
+  (`hle_screen_overlay_hook`); `setup.sh` offers the update.
+
 ### Fixed
 - HD vehicles: units no longer flicker to 1x while the view scrolls by
   right-drag or the mouse moves over them (#14, #9; reported by @kelno,
