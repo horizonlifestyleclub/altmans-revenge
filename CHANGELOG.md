@@ -5,6 +5,21 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
+### Added
+- HD vehicles can draw at **3x** as well as 2x -- sharper voxel units on
+  larger displays. "HD vehicles" in the F10 menu becomes a submenu (Off /
+  On, 2x / On, 3x); the same setting is `hdvoxels=0|2|3` in `ra2.ini`,
+  `--hd-scale 2|3` on the command line, and the `RA2_HD_SCALE` environment
+  variable. Units draw solid at 3x: above 2x the voxel rasterizer's sub-pixel
+  passes don't fully tile, so an uncovered sub-pixel takes the unit's own
+  colour instead of the ground behind it (without that it stippled, with the
+  terrain showing through). 2x is byte-for-byte unchanged. The scale steps
+  down automatically where a frame would exceed 4096x2160 (3x up to ~720p, 2x
+  up to ~1080p), and the overlay the GPU composites stays pixel-for-pixel the
+  CPU reference at 3x as it is at 2x.
+
 ## [0.1.0] - 2026-10-24
 
 ### Added

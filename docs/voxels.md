@@ -82,14 +82,20 @@ Instead the render's finish stage (`0x00754510`, records to pixels) runs
 `N*N-1` more times (`ra2_vox_hd_passes`, read by the lift's pass loop), every
 span starting `1/N` pixel further left, up, or both (the span record's starts
 at `+0x18`/`+0x1A`, patched at `0x0075683E`; `ra2_vox_dx`/`dy`). Each pass is a
-complete, hole-free 1x render of the model sampled at a different offset;
-interleaved, the `N*N` are one image at Nx. The finish stage is only the last
+1x render of the model sampled at a different offset; interleaved, the `N*N`
+are one image at Nx. At 2x the two half-pixel offsets tile exactly; above 2x
+the `1/N` offsets don't separate the fixed splats into clean sub-columns, so
+the body is left under-covered, and an uncovered sub-pixel inside the unit
+takes the unit's own 1x colour -- otherwise it stipples, the ground showing
+through the unit. The finish stage is only the last
 step, so the passes cost little, and they are memoed (99.99% hits), so the
 extra passes almost never run: about 1 ms a frame at 2x, ~2 at 3x, on a miss.
 Everything downstream -- the memo, the stamps, the records, `hdvox_compose`
 and the sparse `hdvox_overlay` -- is sized by N; 2x is byte-for-byte what it
-was. Proven at both scales by the headless overlay-vs-compose check: 0
-mismatches over tens of billions of pixels.
+was. The sparse overlay and the full-frame compose write the same unit pixels
+(same records, same E-match, same loop); a headless check composites the
+overlay over the upscaled frame and compares it against compose, and 3x agrees
+to the same hair as the already-shipped 2x.
 
 **Following the image onto the battlefield.** A unit is built in a 256x256
 staging surface (`[0x00B1D13C]`): each part (body, turret, barrel) is blitted
@@ -103,7 +109,9 @@ the house palette, lighting and the Z-buffer (`0x004373B0`, called at
   and which pixels the unit really got (the Z-buffer's say) from the
   battlefield before and after, and records the unit's 2x colours for them
   (a stamp's pixels count only where a later part did not cover them; where
-  the 2x image is transparent, what was under the unit shows);
+  the Nx image is transparent at the unit's edge, what was under the unit
+  shows; where it is transparent inside the unit above 2x, the unit's own 1x
+  colour, so the body stays solid);
 - the copy into the frame surface (`[0x00887308]`, the primary) ends the
   frame, and the records are published.
 

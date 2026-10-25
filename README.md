@@ -97,21 +97,25 @@ game on Windows, natively on Linux and macOS.
 
 ## Screenshots
 
-Recorded headlessly by the recompiled game. HD vehicles, 1x on the left and
-2x on the right:
+Recorded headlessly by the recompiled game. The standout feature is **HD
+vehicles** -- the renderer draws voxel units (tanks, aircraft, ships) at two
+or three times their size. The same Grizzly tank at 1x, 2x and 3x:
 
-![HD vehicles](docs/screenshots/hd-voxels.png)
+![HD vehicles at 1x, 2x and 3x](docs/screenshots/hd-voxels-scales.png)
+
+An Allied base in a skirmish, HD vehicles drawn at 3x:
+
+![HD vehicles in battle](docs/screenshots/hd-battle.png)
 
 | | |
 |---|---|
-| ![Allied campaign](docs/screenshots/campaign-allied.png) | ![Soviet campaign](docs/screenshots/campaign-soviet.png) |
-| ![Skirmish](docs/screenshots/skirmish-units.png) | ![Skirmish setup](docs/screenshots/skirmish-setup.png) |
 | ![HD aircraft and ships](docs/screenshots/hd-aircraft.png) | ![HD shadows](docs/screenshots/hd-shadows.png) |
+| ![Skirmish](docs/screenshots/skirmish-units.png) | ![Allied campaign](docs/screenshots/campaign-allied.png) |
 
-| | | |
-|---|---|---|
-| ![Westwood logo](docs/screenshots/westwood-logo.png) | ![White House](docs/screenshots/white-house.png) | ![Situation room](docs/screenshots/situation-room.png) |
-| ![Alcatraz briefing](docs/screenshots/alcatraz-briefing.png) | ![Yuri](docs/screenshots/yuri.png) | ![The attack](docs/screenshots/the-attack.png) |
+A few more from the campaign and menus: the [Westwood logo](docs/screenshots/westwood-logo.png),
+the [White House](docs/screenshots/white-house.png), the [situation room](docs/screenshots/situation-room.png),
+the [Alcatraz briefing](docs/screenshots/alcatraz-briefing.png), [Yuri](docs/screenshots/yuri.png) and
+[the attack](docs/screenshots/the-attack.png).
 
 ## Documentation
 

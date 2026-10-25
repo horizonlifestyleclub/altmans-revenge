@@ -474,9 +474,11 @@ static void record_image(int x, int y, int w, int h, const uint8_t* idx1, int s1
             if (!m[p]) continue;
             for (int q = 0; q < NN; q++) {
                 uint8_t v = idx2[(size_t)(N * j + q / N) * s2 + N * i + q % N];
-                /* transparent at Nx: what was there before; an index the 1x
-                 * image never used: the 1x pixel */
-                O[p * NN + q] = !v ? b : known[v] ? col[v] : f;
+                /* transparent at Nx: what was there before -- but above 2x the
+                 * passes under-cover, so inside a drawn pixel use the 1x colour,
+                 * not the ground (else the unit stipples with terrain); an index
+                 * the 1x image never used: the 1x pixel */
+                O[p * NN + q] = !v ? (N > 2 ? f : b) : known[v] ? col[v] : f;
             }
         }
     rec_commit();
@@ -584,7 +586,12 @@ void ra2_vox_unit_copied(void) {
                     int qx = q % N, qy = q / N;
                     uint8_t v = s->hd[(N * j + qy) * (N * s->w) + N * i + qx];
                     if (v) s2[(N * py + qy) * SW + N * px + qx] = v;
-                    else if (wrote) s2[(N * py + qy) * SW + N * px + qx] = was;
+                    /* A transparent Nx subpixel at the unit edge should show
+                     * what was under it (soft edge); but above 2x the passes
+                     * under-cover the body too, so inside a drawn pixel fall
+                     * back to the unit's own 1x colour, not the ground, or the
+                     * body stipples with terrain (grass through the tank). */
+                    else if (wrote) s2[(N * py + qy) * SW + N * px + qx] = N > 2 ? put : was;
                 }
             }
     }
