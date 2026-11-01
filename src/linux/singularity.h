@@ -10,7 +10,7 @@
 #ifndef SG_INTEGRATION_TICKS
 #define SG_INTEGRATION_TICKS 1800
 #endif
-typedef struct { uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state; uint32_t sink,core_uid; } SGHouse;
+typedef struct { uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state,stage,held; uint32_t sink,core_uid; } SGHouse;
 static SGHouse sg_houses[32];
 static uint32_t sg_lastframe,sg_lasttick;
 enum {SG_OFFLINE,SG_READY,SG_RESEARCHING,SG_INTEGRATING,SG_ACTIVE,SG_SUSPENDED};
@@ -18,7 +18,7 @@ static const char*sg_states[]={"OFFLINE","READY","RESEARCHING","INTEGRATING","AC
 static int sg_active(SGHouse*s){return s&&s->state==SG_ACTIVE&&s->powered;}
 static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t type=MEM32(b+0x34);if(type>=0x10000&&MEM8(type+0x1A6))return 0;int ix=MEM32(b+0x30);return ix>=0&&ix<32&&!(MEM32(a+0x5788)&(1u<<ix));}
 
-typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[5],child_uid[5],ready[5],controller,controller_uid; float credited_rank; int suicide,nest_active;} SGUnit;
+typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active;} SGUnit;
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -29,7 +29,7 @@ static int sg_alive(uint32_t p) { return p>=0x10000 && p<0xF0000000 && MEM8(p+0x
 static int sg_vec_count(uint32_t v) { int n=(int)MEM32(v+0x10); return n>=0 && n<8192?n:0; }
 static uint32_t sg_vec_at(uint32_t v,int i) { return MEM32(MEM32(v+4)+4*i); }
 static const char *sg_id(uint32_t p,int building) {
-    uint32_t vt=MEM32(p),t=MEM32(p+(building?0x520:(vt==0x007F5C70?0x6C4:0x6C0)));
+    uint32_t vt=MEM32(p),t=MEM32(p+(building?0x520:((vt==0x007F5C70||vt==0x007E22A4)?0x6C4:0x6C0)));
     if(t<0x10000 || t>0xEFFFFFFF)return "";
     return (const char*)hle_ptr(t+0x24);
 }
@@ -122,31 +122,57 @@ static uint32_t sg_make_drone(uint32_t parent,int slot){
 static uint32_t sg_make_drone(uint32_t parent,int slot){(void)parent;(void)slot;return 0;}
 #endif
 static float sg_rank(uint32_t p){float v;memcpy(&v,hle_ptr(p+0x150),4);return isfinite(v)&&v>=0&&v<100?v:0;}
-static int sg_capacity(uint32_t p,SGUnit*u){const char*id=sg_id(p,0);if(!strcmp(id,"SGTANK"))return u->nest_active?5:0;float rank=sg_rank(p);return rank>=2?3:rank>=1?2:1;}
+/* v09 drones: the operator is the only selectable unit. Its drones are
+   runtime-owned, non-selectable units that attack whatever the operator is
+   attacking, or the nearest enemy in range, like a GI firing; then return.
+   (The engine's carrier launcher crashed on infantry/land carriers.) */
+static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);
+static int sg_capacity(uint32_t p,SGUnit*u){(void)u;const char*id=sg_id(p,0);float rank=sg_rank(p);
+ if(!strcmp(id,"SGTANK"))return 2;if(!strcmp(id,"SGOP"))return rank>=1?3:2;return rank>=2?3:rank>=1?2:1;}
 static uint32_t sg_regen(uint32_t p){float rank=sg_rank(p);return rank>=2?225:rank>=1?330:450;}
+static double sg_drone_range(const char*id){return !strcmp(id,"SGTANK")?8:!strcmp(id,"SGOP")?6:7;}
+static int sg_targetable(uint32_t t){if(t<0x10000||t>0xEFFFFFFF)return 0;uint32_t vt=MEM32(t);return (vt==0x7F5C70||vt==0x7EB058||vt==0x7E22A4||vt==0x7E3EBC)&&sg_alive(t);}
+static uint32_t sg_drone_target(uint32_t p,uint32_t anchor,double range){
+ uint32_t house=MEM32(p+0x21C),t=MEM32(p+0x2B4);
+ if(sg_targetable(t)&&sg_enemy(house,MEM32(t+0x21C))&&sg_dist(anchor,t)<=range+1)return t;
+ uint32_t best=0;double bd=range;
+ for(int i=0;i<sg_vec_count(0xA8EC78);i++){
+  uint32_t q=sg_vec_at(0xA8EC78,i),vt=MEM32(q);if((vt!=0x7F5C70&&vt!=0x7EB058)||!sg_alive(q)||!sg_enemy(house,MEM32(q+0x21C)))continue;
+  if(!strcmp(sg_id(q,0),"SGPDRONE"))continue;double d=sg_dist(anchor,q);if(d<=bd){bd=d;best=q;}
+ }
+ return best;
+}
 static void sg_control_tick(uint32_t f){
 #ifndef SG_STATE_TEST
+ /* Spent kamikaze drones, and drones whose operator is gone, are removed a frame later. */
  for(int i=sg_vec_count(0xA8EC78)-1;i>=0;i--){
   uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||MEM32(p)!=0x7F5C70||strcmp(sg_id(p,0),"SGPDRONE"))continue;
-  SGUnit*u=sg_state(p);if(u&&u->spent_frame&&f>=u->spent_frame){uint32_t saved=g_ecx;g_ecx=p;hle_call_guest(0x5F65F0,0,NULL);g_ecx=saved;}
+  SGUnit*u=sg_state(p);if(!u)continue;
+  if(!u->spent_frame&&u->controller&&(!sg_controller_anchor(u->controller)||MEM32(u->controller+0x10)!=u->controller_uid))u->spent_frame=f+1;
+  if(u->spent_frame&&f>=u->spent_frame){uint32_t saved=g_ecx;g_ecx=p;hle_call_guest(0x5F65F0,0,NULL);g_ecx=saved;}
  }
 #endif
  int n=sg_vec_count(0xA8EC78);
  for(int i=0;i<n;i++){
-  uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_controller_anchor(p))continue;
+  uint32_t p=sg_vec_at(0xA8EC78,i),anchor=sg_controller_anchor(p);if(!anchor)continue;
   uint32_t vt=MEM32(p);if(vt!=0x7F5C70&&vt!=0x7EB058)continue;
   const char*id=sg_id(p,0);if(strcmp(id,"SGLINK")&&strcmp(id,"SGOP")&&strcmp(id,"SGTANK"))continue;
   SGUnit*u=sg_state(p);if(!u||f<u->until)continue;int capacity=sg_capacity(p,u);uint32_t regen=sg_regen(p);
-  for(int j=0;j<5;j++){
+  double range=sg_drone_range(id);uint32_t target=sg_drone_target(p,anchor,range);int kamikaze=strcmp(id,"SGLINK")!=0;
+  for(int j=0;j<10;j++){
    uint32_t d=u->children[j];int alive=d&&MEM32(d+0x10)==u->child_uid[j]&&sg_alive(d);
    if(alive){
-    SGUnit*du=sg_state(d);if(du){float rank=sg_rank(d);if(rank>du->credited_rank){float parentrank=sg_rank(p)+(rank-du->credited_rank)*150.f/700.f;memcpy(hle_ptr(p+0x150),&parentrank,4);du->credited_rank=rank;}}
+    SGUnit*du=sg_state(d);if(!du)continue;
+    float rank=sg_rank(d);if(rank>du->credited_rank){float parentrank=sg_rank(p)+(rank-du->credited_rank)*150.f/700.f;memcpy(hle_ptr(p+0x150),&parentrank,4);du->credited_rank=rank;}
+    du->suicide=kamikaze;
+    if(target){if(MEM32(d+0x2B4)!=target)sg_ai_order(d,target,1);}
+    else if(sg_dist(d,anchor)>2.5){int x=(int32_t)MEM32(anchor+0x9C)/256+(j%3)-1,y=(int32_t)MEM32(anchor+0xA0)/256+(j/3%3)-1;sg_ai_move(d,x,y);}
     continue;
    }
-   if(d){u->children[j]=0;u->ready[j]=f+regen;fprintf(stderr,"[drones] slot %d replacement in %u ticks\n",j+1,regen);}
+   if(d){u->children[j]=0;u->ready[j]=f+regen;}
    if(j>=capacity)continue;
    if(!u->ready[j])u->ready[j]=f+15;
-   if(f>=u->ready[j]){uint32_t child=sg_make_drone(p,j);if(child){u->children[j]=child;u->child_uid[j]=MEM32(child+0x10);u->ready[j]=0;fprintf(stderr,"[drones] %s slot %d launched controllable drone %08X\n",id,j+1,child);}else u->ready[j]=f+30;}
+   if(f>=u->ready[j]){uint32_t child=sg_make_drone(p,j);if(child){u->children[j]=child;u->child_uid[j]=MEM32(child+0x10);u->ready[j]=0;fprintf(stderr,"[drones] %s slot %d launched drone %08X\n",id,j+1,child);}else u->ready[j]=f+30;}
   }
  }
 }
@@ -163,16 +189,92 @@ int sg_weapon_mode(uint32_t p){
  if(!sg_on()||!p||MEM32(p)!=0x7F5C70||strcmp(sg_id(p,0),"SGPDRONE"))return -1;
  SGUnit*u=sg_state(p);return u&&u->suicide?1:0;
 }
-static int sg_drone_command(int scan,int down){
- if((scan!=7&&scan!=66)||!sg_on())return 0; /* D or F9 */
- int handled=0;uint32_t player=MEM32(0xA83D4C);
- for(int i=0;i<sg_vec_count(0xA8EC78);i++){
-  uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||!MEM8(p+0x83)||MEM32(p+0x21C)!=player||MEM32(p)!=0x7F5C70)continue;
-  const char*id=sg_id(p,0);SGUnit*u=sg_state(p);if(!u)continue;
-  if(!strcmp(id,"SGPDRONE")){handled=1;if(down){u->suicide=!u->suicide;fprintf(stderr,"[drones] selected drone mode %s\n",u->suicide?"SUICIDE":"NORMAL");}}
-  if(!strcmp(id,"SGTANK")){handled=1;if(down){u->nest_active=!u->nest_active;fprintf(stderr,"[drones] nest tank %s\n",u->nest_active?"DEPLOYED":"MOBILE");}}
+
+/* v09: Singularity research is two native superweapon cards (shield tab) with
+   the nuke-style on-screen countdown. The runtime grants and advances them; they
+   are never fired by clicking. SuperClass layout per YRpp:
+   +0x28 Type, +0x2C Owner, +0x30 timer start, +0x38 time left, +0x6D present, +0x6F ready. */
+static uint32_t sg_super(uint32_t house,const char*id){
+ for(int i=0;i<sg_vec_count(0xA83CB8);i++){
+  uint32_t s=sg_vec_at(0xA83CB8,i),t=MEM32(s+0x28);
+  if(MEM32(s+0x2C)==house&&t>0x10000&&!strcmp((const char*)hle_ptr(t+0x24),id))return s;
  }
- return handled;
+ return 0;
+}
+/* Position in the SuperWeaponTypes list: the sidebar identifies cards by it. */
+static uint32_t sg_sw_index(uint32_t type){for(int i=0;i<sg_vec_count(0xA8E330);i++)if(sg_vec_at(0xA8E330,i)==type)return (uint32_t)i;return 0;}
+static int sg_super_left(uint32_t s){
+ int start=(int)MEM32(s+0x30),left=(int)MEM32(s+0x38);
+ if(start!=-1)left-=(int)(MEM32(RA2_GAME_FRAME_VA)-(uint32_t)start);
+ return left>0?left:0;
+}
+static int sg_super_done(uint32_t s){return s&&MEM8(s+0x6D)&&(MEM8(s+0x6F)||sg_super_left(s)<=15);}
+#ifndef SG_STATE_TEST
+static void sg_super_grant(uint32_t s,uint32_t house){
+ if(!s||MEM8(s+0x6D))return;
+ uint32_t saved=g_ecx,args[3]={1,1,0};g_ecx=s;uint32_t ok=hle_call_guest(0x6CB560,3,args)&0xFF;
+ /* A one-time grant arrives fully charged; restart its countdown from zero. */
+ const char*fast=getenv("SG_FAST_RESEARCH"); /* lab only: frames per card */
+ if(ok){g_ecx=s;hle_call_guest(0x6CE0B0,0,NULL);}
+ if(ok&&fast&&atoi(fast)>0){MEM32(s+0x30)=MEM32(RA2_GAME_FRAME_VA);MEM32(s+0x38)=(uint32_t)atoi(fast);}
+ if(getenv("SG_DEBUG_SUPER")){fprintf(stderr,"[sgdebug] grant %s ok=%u frame=%u:",(char*)hle_ptr(MEM32(s+0x28)+0x24),ok,MEM32(RA2_GAME_FRAME_VA));for(int o=0x24;o<0x80;o+=4)fprintf(stderr," %02X=%08X",o,MEM32(s+o));fprintf(stderr,"\n");}
+ if(ok&&house==MEM32(0xA83D4C)){uint32_t cam[2]={31,sg_sw_index(MEM32(s+0x28))};g_ecx=0x87F7E8;hle_call_guest(0x6A6300,2,cam);}
+ g_ecx=saved;
+}
+/* Adds the card to the shield tab; the sidebar ignores a card it already shows. */
+static void sg_super_show(uint32_t s){if(!s||!MEM8(s+0x6D))return;uint32_t cam[2]={31,sg_sw_index(MEM32(s+0x28))},saved=g_ecx;g_ecx=0x87F7E8;hle_call_guest(0x6A6300,2,cam);g_ecx=saved;}
+static void sg_super_lose(uint32_t s){if(!s||!MEM8(s+0x6D))return;uint32_t saved=g_ecx;g_ecx=s;hle_call_guest(0x6CB7B0,0,NULL);g_ecx=saved;}
+static void sg_super_hold(uint32_t s,int hold){if(!s||!MEM8(s+0x6D))return;uint32_t saved=g_ecx,arg=hold?1:0;g_ecx=s;hle_call_guest(0x6CB4D0,1,&arg);g_ecx=saved;}
+static void sg_message(const char*text){
+ size_t n=strlen(text);uint16_t*w=hle_heap_alloc((n+1)*2,1);if(!w)return;
+ for(size_t i=0;i<=n;i++)w[i]=(uint8_t)text[i];
+ uint32_t saved=g_ecx,args[7]={0,0,hle_va(w),(uint32_t)-1,0x4046,450,0};g_ecx=0xA8BC60;hle_call_guest(0x5D3BA0,7,args);g_ecx=saved;
+ /* The message list keeps a reference for its lifetime: deliberately not freed. */
+}
+#else
+static void sg_super_grant(uint32_t s,uint32_t house){(void)house;if(s)MEM8(s+0x6D)=1;}
+static void sg_super_lose(uint32_t s){if(s)MEM8(s+0x6D)=0;}
+static void sg_super_show(uint32_t s){(void)s;}
+static void sg_super_hold(uint32_t s,int hold){(void)s;(void)hold;}
+static void sg_message(const char*text){(void)text;}
+#endif
+/* Card pictures: the engine leaves SidebarImage files in the mod folder
+   unloaded, so the runtime loads them (FileSystem::LoadFile as SHP) and sets
+   SuperWeaponType +0xB8 SidebarImage; +0xCC holds the file name (measured). */
+static void sg_card_images(void){
+#ifndef SG_STATE_TEST
+ static uint32_t fixed[2];
+ static const char*ids[2]={"SGRESEARCH","SGSINGULAR"};
+ for(int k=0;k<2;k++){
+  uint32_t sw=0;
+  for(int i=0;i<sg_vec_count(0xA8E330);i++){uint32_t t=sg_vec_at(0xA8E330,i);if(!strcmp((const char*)hle_ptr(t+0x24),ids[k]))sw=t;}
+  if(!sw||fixed[k]==sw)continue;
+  char name[40];snprintf(name,sizeof name,"%.24s.shp",(const char*)hle_ptr(sw+0xCC));
+  char*g=hle_heap_alloc(sizeof name,1);if(!g)continue;memcpy(g,name,sizeof name);
+  uint32_t sc=g_ecx,sd=g_edx;g_ecx=hle_va(g);g_edx=1;uint32_t shp=hle_call_guest(0x5B40B0,0,NULL);g_ecx=sc;g_edx=sd;
+  if(shp>0x10000){MEM32(sw+0xB8)=shp;fixed[k]=sw;fprintf(stderr,"[singularity] card %s picture %s\n",ids[k],name);}
+ }
+#endif
+}
+/* Singularity achieved: every unit of that house gains a rank; one in three
+   goes straight to elite. Deterministic per unit, never the engine RNG. */
+static int sg_promote(uint32_t house){
+ int promoted=0;
+ for(int i=0;i<sg_vec_count(0xA8EC78);i++){
+  uint32_t p=sg_vec_at(0xA8EC78,i),vt=MEM32(p);if(!sg_alive(p)||MEM32(p+0x21C)!=house)continue;
+  if(vt!=0x7F5C70&&vt!=0x7EB058&&vt!=0x7E22A4)continue;
+  float v=sg_rank(p),nv=v>=1?2.f:1.f;
+  if(((MEM32(p+0x10)*2654435761u)>>16)%3==0)nv=2.f;
+  if(nv>v){memcpy(hle_ptr(p+0x150),&nv,4);promoted++;}
+ }
+ return promoted;
+}
+/* B-2 bomb: Construction Yards and War Factories survive badly damaged. */
+void sg_building_damage(uint32_t b,uint32_t pdamage,uint32_t wh){
+ if(!sg_on()||!b||!pdamage||wh<0x10000||strcmp((const char*)hle_ptr(wh+0x24),"SGB2BOMBWH"))return;
+ const char*id=sg_id(b,1);if(!strstr(id,"CNST")&&!strstr(id,"WEAP")&&strcmp(id,"SGFACT"))return;
+ int hp=(int32_t)MEM32(b+0x6C),allow=hp-250,dmg=(int32_t)MEM32(pdamage);if(allow<0)allow=0;
+ if(dmg>allow){MEM32(pdamage)=(uint32_t)allow;fprintf(stderr,"[b2] %s survives: damage %d clamped to %d\n",id,dmg,allow);}
 }
 
 #include "adaptive_ai.h"
@@ -189,6 +291,7 @@ void sg_tick(void) {
     if(f==sg_lastframe || !f)return;
     if(f<sg_lastframe){memset(sg_houses,0,sizeof sg_houses);memset(sg_units,0,sizeof sg_units);memset(sg_ai_brains,0,sizeof sg_ai_brains);sg_lasttick=0;}
     sg_lastframe=f;
+    if(f<60)sg_card_images();
     sg_ai_sanitize();
     uint32_t elapsed=f-sg_lasttick;if(elapsed<15)return;sg_lasttick=f;
     double seconds=elapsed/15.;
@@ -203,7 +306,7 @@ void sg_tick(void) {
         uint32_t b=sg_vec_at(0xA8EB40,i);if(!sg_alive(b))continue;
         SGHouse*s=sg_house(MEM32(b+0x21C));if(!s)continue;
         const char*id=sg_id(b,1);if(!s->sink)s->sink=b;
-        if(!strcmp(id,"SGCOLO")){s->colossus++;uint32_t uid=MEM32(b+0x10);if(s->core_uid!=uid){s->progress=0;s->level=0;s->research_started=0;s->core_uid=uid;}}
+        if(!strcmp(id,"SGCOLO")){s->colossus++;uint32_t uid=MEM32(b+0x10);s->core_uid=uid;}
         if(!strncmp(id,"SGNODE",6))s->nodes++;
         if(!strcmp(id,"SGBATT"))s->batteries++;
     }
@@ -220,14 +323,35 @@ void sg_tick(void) {
         else if(deficit<0)s->charge=fmin(s->batteries*6000.,s->charge+fmin(-deficit,s->batteries*100*(1+.25*s->level))*.9*seconds);
         if(supply!=s->battery_output){s->battery_output=supply;MEM8(h+0x5778)=1;}
         int powered=baseoutput+supply>=physicaldrain;s->powered=powered;
-        if(s->research_started && powered && (s->colossus || s->nodes>=5) && s->progress<SG_RESEARCH_TICKS)s->progress=(uint32_t)fmin(SG_RESEARCH_TICKS,s->progress+elapsed);
-        if(s->research_started && s->progress>=SG_RESEARCH_TICKS && powered && (s->colossus||s->nodes>=5)){if(s->level==0)MEM8(h+0x5778)=1;s->level=fmin(1.,s->level+(double)elapsed/SG_INTEGRATION_TICKS);}
+        /* Card 1 "Singularity Research" (6 min) -> card 2 "Singularity" (2 min)
+           -> ACTIVE. Low power pauses the cards natively; losing the
+           prerequisite puts them on hold; losing every core resets. */
+        int eligible=s->colossus||s->nodes>=5;
+        uint32_t rs=sg_super(h,"SGRESEARCH"),ss=sg_super(h,"SGSINGULAR"),card=s->stage==1?rs:s->stage==2?ss:0;
+        if(!s->colossus&&!s->nodes){sg_super_lose(rs);sg_super_lose(ss);s->stage=0;s->held=0;s->level=0;s->blackout_enabled=0;}
+        else if(!eligible){if(card&&!s->held){sg_super_hold(card,1);s->held=1;}}
+        else {
+            if(s->held){sg_super_hold(card,0);s->held=0;}
+            if(s->stage==0&&rs){sg_super_grant(rs,h);s->stage=1;}
+            else if(s->stage==1&&!MEM8(rs+0x6D))sg_super_grant(rs,h);
+            else if(s->stage==1&&sg_super_done(rs)){sg_super_lose(rs);sg_super_grant(ss,h);s->stage=2;}
+            else if(s->stage==2&&!MEM8(ss+0x6D))sg_super_grant(ss,h);
+            else if(s->stage==2&&sg_super_done(ss)){
+                sg_super_lose(ss);s->stage=3;s->level=1;s->blackout_enabled=1;MEM8(h+0x5778)=1;
+                int promoted=sg_promote(h);
+                fprintf(stderr,"[singularity] ACHIEVED house=%08X promoted=%d\n",h,promoted);
+                sg_message(h==MEM32(0xA83D4C)?"SINGULARITY ACHIEVED - all units promoted. Enemy grid and targeting disrupted.":"WARNING: Enemy Singularity achieved.");
+            }
+        }
+        if(h==MEM32(0xA83D4C)&&(s->stage==1||s->stage==2)){ /* keep the card on the sidebar */
+            sg_super_show(s->stage==1?rs:ss);
+        }
+        s->research_started=s->stage>0;s->progress=s->stage>=2?SG_RESEARCH_TICKS:0;
         int previous=s->state;
-        if(!s->colossus&&!s->nodes){s->state=SG_OFFLINE;s->progress=0;s->level=0;s->research_started=0;s->core_uid=0;}
-        else if(!powered || (!s->colossus&&s->nodes<5))s->state=SG_SUSPENDED;
-        else if(!s->research_started)s->state=SG_READY;
-        else if(s->progress<SG_RESEARCH_TICKS)s->state=SG_RESEARCHING;
-        else if(s->level<1)s->state=SG_INTEGRATING;
+        if(!s->colossus&&!s->nodes)s->state=SG_OFFLINE;
+        else if(!powered||!eligible)s->state=SG_SUSPENDED;
+        else if(s->stage<=1)s->state=s->stage?SG_RESEARCHING:SG_READY;
+        else if(s->stage==2)s->state=SG_INTEGRATING;
         else s->state=SG_ACTIVE;
         if(previous!=s->state)fprintf(stderr,"[singularity] state house=%08X %s -> %s\n",h,sg_states[previous],sg_states[s->state]);
         if(f%450==0 && (s->colossus || s->nodes))fprintf(stderr,"[singularity] house=%08X nodes=%d colossus=%d powered=%d research=%u ticks\n",h,s->nodes,s->colossus,powered,s->progress);
@@ -269,67 +393,18 @@ void sg_tick(void) {
         if(vt!=0x007F5C70&&vt!=0x007EB058&&vt!=0x007E22A4)continue;
         SGUnit*u=sg_state(p);SGHouse*h=sg_house(MEM32(p+0x21C));if(!u)continue;
         double factor=(f<u->until)?.01:1.;
-        if(u->nest_active&&!strcmp(sg_id(p,0),"SGTANK"))factor=0.;
         if(h&&h->powered&&h->level>0&&(h->colossus||sg_drone(sg_id(p,0))))factor*=1.+.1*h->level*(h->colossus?1:fmin(h->nodes,5)/5.);
         double old;memcpy(&old,hle_ptr(p+0x580),8);
         if(old>=0&&old<100){old=(u->speedfactor>0?old/u->speedfactor:1.)*factor;memcpy(hle_ptr(p+0x580),&old,8);u->speedfactor=factor;}
     }
-    SGHouse *player=sg_house(MEM32(0xA83D4C));
-    char hud[256]="";
-    if(player&&(player->colossus||player->nodes)) {
-        int remaining=(int)((SG_RESEARCH_TICKS-player->progress+14)/15)+(int)ceil((1-player->level)*SG_INTEGRATION_TICKS/15.);
-        if(sg_active(player)) snprintf(hud,sizeof hud,"SINGULARITY ACTIVE | GRID %s | F8",player->blackout_enabled?"OFFLINE":"ONLINE");
-        else if(player->research_started)snprintf(hud,sizeof hud,"SINGULARITY %02d:%02d | %s | F8",remaining/60,remaining%60,sg_states[player->state]);
-        else if(player->state==SG_READY)snprintf(hud,sizeof hud,"SINGULARITY READY | F8");
-        else snprintf(hud,sizeof hud,"SINGULARITY SUSPENDED | F8");
-    }
-    for(int i=0;i<sg_vec_count(0xA8EC78);i++){
-        uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||(MEM32(p)!=0x7F5C70&&MEM32(p)!=0x7EB058)||!MEM8(p+0x83)||MEM32(p+0x21C)!=MEM32(0xA83D4C))continue;
-        const char*id=sg_id(p,0);SGUnit*u=sg_state(p);if(!u)continue;
-        size_t len=strlen(hud);
-        if(!strcmp(id,"SGPDRONE")){snprintf(hud+len,sizeof hud-len,"%sDRONE: %s | D toggles mode",len?"\n":"",u->spent_frame?"DETONATING":u->suicide?"SUICIDE":"NORMAL");break;}
-        if(!strcmp(id,"SGTANK")||!strcmp(id,"SGLINK")||!strcmp(id,"SGOP")){
-            int cap=sg_capacity(p,u),alive=0;for(int j=0;j<5;j++)if(u->children[j]&&sg_alive(u->children[j])&&MEM32(u->children[j]+0x10)==u->child_uid[j])alive++;
-            snprintf(hud+len,sizeof hud-len,"%s%s %d/%d DRONES%s",len?"\n":"",!strcmp(id,"SGTANK")?"BASTION":"CONTROLLER",alive,cap,!strcmp(id,"SGTANK")?" | D deploy/pack":"");
-            for(int j=0;j<cap;j++)if(!u->children[j]&&u->ready[j]>f){len=strlen(hud);snprintf(hud+len,sizeof hud-len," [%d: %us]",j+1,(u->ready[j]-f+14)/15);}
-            break;
-        }
-    }
-    if(sg_ai_mode()){size_t len=strlen(hud);snprintf(hud+len,sizeof hud-len,"%sADAPTIVE COMMANDER | LOCAL / SCOUTING",len?"\n":"");}
+    /* v09: no custom status text; Singularity uses sidebar cards and the
+       native countdown. Only the opt-in Adaptive Commander profile notes itself. */
+    char hud[96]="";
+    if(sg_ai_mode())snprintf(hud,sizeof hud,"ADAPTIVE COMMANDER | LOCAL / SCOUTING");
     hle_screen_status(hud);
     (void)elapsed;
 #endif
 }
 
-/* A native technology menu, separate from the construction sidebar. */
-static hle_menu_item_t sg_menu[16];
-static char sg_status_label[128],sg_progress_label[128],sg_requirement_label[128];
-static void sg_menu_chosen(int id){
-    if(!sg_on())return;SGHouse*s=sg_house(MEM32(0xA83D4C));if(!s)return;
-    if(id==8101 && s->state==SG_READY){s->research_started=1;s->blackout_enabled=1;fprintf(stderr,"[singularity] research requested by player\n");}
-    if(id==8102 && sg_active(s)){s->blackout_enabled=!s->blackout_enabled;fprintf(stderr,"[singularity] player toggled enemy grid disruption %d\n",s->blackout_enabled);}
-}
-int sg_tech_key(int scan,int down){
-    if(sg_drone_command(scan,down))return 1;
-    if(scan!=65 || !sg_on())return 0; /* SDL_SCANCODE_F8 */
-    if(!down)return 1;
-    SGHouse*s=sg_house(MEM32(0xA83D4C));int n=0;
-    sg_menu[n++]=(hle_menu_item_t){"SINGULARITY | TECHNOLOGY",NULL,0,0,NULL,0};
-    if(!s){sg_menu[n++]=(hle_menu_item_t){"Start a fresh skirmish to research technology",NULL,0,0,NULL,0};}
-    else {
-        snprintf(sg_status_label,sizeof sg_status_label,"State: %s",sg_states[s->state]);
-        snprintf(sg_progress_label,sizeof sg_progress_label,"Countdown: %02u:%02u | %s",(unsigned)(((SG_RESEARCH_TICKS-s->progress+14)/15)+(unsigned)ceil((1-s->level)*SG_INTEGRATION_TICKS/15.))/60,(unsigned)(((SG_RESEARCH_TICKS-s->progress+14)/15)+(unsigned)ceil((1-s->level)*SG_INTEGRATION_TICKS/15.))%60,sg_states[s->state]);
-        snprintf(sg_requirement_label,sizeof sg_requirement_label,"Prerequisite: %s | Power: %s",s->colossus?"Colossus online":s->nodes>=5?"5 compute nodes":"Colossus OR 5 compute nodes",s->powered?"available":"insufficient");
-        sg_menu[n++]=(hle_menu_item_t){sg_status_label,NULL,0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){sg_requirement_label,NULL,0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){sg_progress_label,NULL,0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){NULL,NULL,0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){"Research Singularity", "6 min + 2 min integration",s->state==SG_READY?8101:0,s->research_started,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){"Disrupt enemy power + targeting", "Requires ACTIVE",sg_active(s)?8102:0,s->blackout_enabled,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){s->colossus?"Colossus defence: 6 interceptors":"Node defence: 1 interceptor per node", "Launch against nearby threats",0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){"Destroy core / cut its power to stop effects",NULL,0,0,NULL,0};
-        sg_menu[n++]=(hle_menu_item_t){"Reopen F8 to refresh | fresh skirmishes only",NULL,0,0,NULL,0};
-    }
-    if(sg_ai_mode())sg_menu[n++]=(hle_menu_item_t){"Adaptive Commander: local, scouting required", "No model or API connection",0,0,NULL,0};
-    hle_screen_menu(sg_menu,n,sg_menu_chosen);return 1;
-}
+/* v09: F8 menu and D-key drone control retired; keys pass through to the game. */
+int sg_tech_key(int scan,int down){(void)scan;(void)down;return 0;}
