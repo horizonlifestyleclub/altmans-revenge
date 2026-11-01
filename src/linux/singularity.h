@@ -18,7 +18,7 @@ static const char*sg_states[]={"OFFLINE","READY","RESEARCHING","INTEGRATING","AC
 static int sg_active(SGHouse*s){return s&&s->state==SG_ACTIVE&&s->powered;}
 static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t type=MEM32(b+0x34);if(type>=0x10000&&MEM8(type+0x1A6))return 0;int ix=MEM32(b+0x30);return ix>=0&&ix<32&&!(MEM32(a+0x5788)&(1u<<ix));}
 
-typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active;} SGUnit;
+typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active; int32_t cable[3];} SGUnit;
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -128,7 +128,7 @@ static float sg_rank(uint32_t p){float v;memcpy(&v,hle_ptr(p+0x150),4);return is
    (The engine's carrier launcher crashed on infantry/land carriers.) */
 static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);
 static int sg_capacity(uint32_t p,SGUnit*u){(void)u;const char*id=sg_id(p,0);float rank=sg_rank(p);
- if(!strcmp(id,"SGTANK"))return 2;if(!strcmp(id,"SGOP"))return rank>=1?3:2;return rank>=2?3:rank>=1?2:1;}
+ if(!strcmp(id,"SGTANK"))return MEM8(p+0x6E0)?10:2; /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return rank>=2?3:rank>=1?2:1;}
 static uint32_t sg_regen(uint32_t p){float rank=sg_rank(p);return rank>=2?225:rank>=1?330:450;}
 static double sg_drone_range(const char*id){return !strcmp(id,"SGTANK")?8:!strcmp(id,"SGOP")?6:7;}
 static int sg_targetable(uint32_t t){if(t<0x10000||t>0xEFFFFFFF)return 0;uint32_t vt=MEM32(t);return (vt==0x7F5C70||vt==0x7EB058||vt==0x7E22A4||vt==0x7E3EBC)&&sg_alive(t);}
@@ -141,6 +141,23 @@ static uint32_t sg_drone_target(uint32_t p,uint32_t anchor,double range){
   if(!strcmp(sg_id(q,0),"SGPDRONE"))continue;double d=sg_dist(anchor,q);if(d<=bd){bd=d;best=q;}
  }
  return best;
+}
+/* Fibre-optic cable: each Bastion drone pays out a thin grey line behind it,
+   drawn with the engine's laser lines (LaserDrawClass, 0x5C bytes) that fade
+   over about six seconds, leaving a short-lived web over the battlefield. */
+static void sg_cable(int32_t*from,uint32_t d){
+#ifndef SG_STATE_TEST
+ int32_t x=(int32_t)MEM32(d+0x9C),y=(int32_t)MEM32(d+0xA0),z=(int32_t)MEM32(d+0xA4)-40;
+ double dx=x-from[0],dy=y-from[1];if(dx*dx+dy*dy<96.*96.)return;
+ uint32_t size=0x5C,mem=hle_call_guest(0x7C8E17,1,&size);if(!mem)return;
+ float one=1.f,zero=0.f;uint32_t fo,fz;memcpy(&fo,&one,4);memcpy(&fz,&zero,4);
+ uint32_t args[16]={(uint32_t)from[0],(uint32_t)from[1],(uint32_t)from[2],(uint32_t)x,(uint32_t)y,(uint32_t)z,0,1,
+  0xC8C4BEu,0x202020u,0,90,0,1,fo,fz};
+ uint32_t saved=g_ecx;g_ecx=mem;hle_call_guest(0x54FE60,16,args);g_ecx=saved;
+ from[0]=x;from[1]=y;from[2]=z;
+#else
+ (void)from;(void)d;
+#endif
 }
 static void sg_control_tick(uint32_t f){
 #ifndef SG_STATE_TEST
@@ -165,6 +182,8 @@ static void sg_control_tick(uint32_t f){
     SGUnit*du=sg_state(d);if(!du)continue;
     float rank=sg_rank(d);if(rank>du->credited_rank){float parentrank=sg_rank(p)+(rank-du->credited_rank)*150.f/700.f;memcpy(hle_ptr(p+0x150),&parentrank,4);du->credited_rank=rank;}
     du->suicide=kamikaze;
+    if(j>=capacity){du->spent_frame=f+1;continue;} /* packed up: extra drones return to the racks */
+    if(!strcmp(id,"SGTANK")){if(!du->cable[0]&&!du->cable[1]){du->cable[0]=(int32_t)MEM32(anchor+0x9C);du->cable[1]=(int32_t)MEM32(anchor+0xA0);du->cable[2]=(int32_t)MEM32(anchor+0xA4)+60;}sg_cable(du->cable,d);}
     if(target){if(MEM32(d+0x2B4)!=target)sg_ai_order(d,target,1);}
     else if(sg_dist(d,anchor)>2.5){int x=(int32_t)MEM32(anchor+0x9C)/256+(j%3)-1,y=(int32_t)MEM32(anchor+0xA0)/256+(j/3%3)-1;sg_ai_move(d,x,y);}
     continue;
@@ -406,5 +425,22 @@ void sg_tick(void) {
 #endif
 }
 
-/* v09: F8 menu and D-key drone control retired; keys pass through to the game. */
-int sg_tech_key(int scan,int down){(void)scan;(void)down;return 0;}
+/* v09: F8 menu retired. D on selected Bastions toggles drone-nest mode: the
+   engine's simple-deploy state (UnitClass::Deployed, +0x6E0) with the mast-up
+   model. (Its own deploy command would unload the passengers instead; clicking
+   the Bastion itself still does that.) Other keys pass through. */
+static void sg_bastion_toggle(uint32_t p){
+ int on=!MEM8(p+0x6E0);
+ if(on)sg_ai_order(p,0,5); /* stop where it stands (Guard) */
+ MEM8(p+0x6E0)=(uint8_t)on;MEM8(p+0x6E1)=0;MEM8(p+0x6E2)=0;
+ fprintf(stderr,"[drones] Bastion %08X %s\n",p,on?"DEPLOYED: 10 drones":"MOBILE: 2 drones");
+}
+int sg_tech_key(int scan,int down){
+ if(scan!=7||!sg_on())return 0; /* SDL_SCANCODE_D */
+ int handled=0;uint32_t player=MEM32(0xA83D4C);
+ for(int i=0;i<sg_vec_count(0xA8EC78);i++){
+  uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||!MEM8(p+0x83)||MEM32(p+0x21C)!=player||MEM32(p)!=0x7F5C70||strcmp(sg_id(p,0),"SGTANK"))continue;
+  handled=1;if(down)sg_bastion_toggle(p);
+ }
+ return handled;
+}
