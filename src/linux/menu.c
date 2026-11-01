@@ -155,7 +155,9 @@ static void open_menu(void) {
     hle_screen_menu(g_main, n, chosen);
 }
 
+extern int sg_tech_key(int scancode,int down);
 static int on_key(int scancode, int down) {
+    if(sg_tech_key(scancode,down))return 1;
     if (scancode != SDL_SCANCODE_F10) return g_next_key ? g_next_key(scancode, down) : 0;
     if (down) open_menu();
     return 1;

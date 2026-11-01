@@ -300,7 +300,9 @@ static int menus_use_windows_cursor(void) {
 
 /* Without a recording, the same checksum lines at the same rate, from the
  * pump; and --dump-frames writes those frames as BMPs. */
+#include "singularity.h"
 static void frame_pump(void) {
+    if(!sg_on())hle_screen_status("");
     static uint32_t next;
     const uint8_t *px;
     const uint32_t *pal;
