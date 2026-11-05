@@ -3,6 +3,7 @@
  * Experimental progression state is session-local; see mod status documentation.
  */
 #include <math.h>
+#include <time.h>
 #include "mods.h"
 #ifndef SG_RESEARCH_TICKS
 #define SG_RESEARCH_TICKS 5400
@@ -10,7 +11,7 @@
 #ifndef SG_INTEGRATION_TICKS
 #define SG_INTEGRATION_TICKS 1800
 #endif
-typedef struct { uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state,stage,held; uint32_t sink,core_uid; } SGHouse;
+typedef struct { uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state,stage,held,cost_steps; uint32_t sink,core_uid,outage_until,outage_by,next_outage,next_heist,next_cost,next_focus,next_hunt,next_cash; float cost_base[2],cost_written[2]; } SGHouse;
 static SGHouse sg_houses[32];
 static uint32_t sg_lastframe,sg_lasttick;
 enum {SG_OFFLINE,SG_READY,SG_RESEARCHING,SG_INTEGRATING,SG_ACTIVE,SG_SUSPENDED};
@@ -18,7 +19,7 @@ static const char*sg_states[]={"OFFLINE","READY","RESEARCHING","INTEGRATING","AC
 static int sg_active(SGHouse*s){return s&&s->state==SG_ACTIVE&&s->powered;}
 static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t type=MEM32(b+0x34);if(type>=0x10000&&MEM8(type+0x1A6))return 0;int ix=MEM32(b+0x30);return ix>=0&&ix<32&&!(MEM32(a+0x5788)&(1u<<ix));}
 
-typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled; int32_t cable[3];} SGUnit;
+typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled,lasthp; uint32_t alert_until,shield_next; int32_t cable[3];} SGUnit;
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -127,11 +128,13 @@ static float sg_rank(uint32_t p){float v;memcpy(&v,hle_ptr(p+0x150),4);return is
    runtime-owned, non-selectable units that attack whatever the operator is
    attacking, or the nearest enemy in range, like a GI firing; then return.
    (The engine's carrier launcher crashed on infantry/land carriers.) */
-static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);static void sg_bastion_orders(void);
-static int sg_capacity(uint32_t p,SGUnit*u){(void)u;const char*id=sg_id(p,0);float rank=sg_rank(p);
+static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);static void sg_bastion_orders(void);static void sg_message(const char*);
+static int sg_capacity(uint32_t p,SGUnit*u){if(MEM32(p)==0x7E3EBC){const char*b=sg_id(p,1);return MEM32(RA2_GAME_FRAME_VA)<u->alert_until?(!strcmp(b,"SGCOLO")?6:2):0;}
+ const char*id=sg_id(p,0);float rank=sg_rank(p);
  if(!strcmp(id,"SGTANK"))return MEM8(p+0x6E0)?10:2; /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return rank>=2?3:rank>=1?2:1;}
 static uint32_t sg_regen(uint32_t p){float rank=sg_rank(p);return rank>=2?225:rank>=1?330:450;}
-static double sg_drone_range(const char*id){return !strcmp(id,"SGTANK")?8:!strcmp(id,"SGOP")?6:7;}
+static int sg_core(const char*id){return !strcmp(id,"SGCOLO")||!strncmp(id,"SGNODE",6);}
+static double sg_drone_range(const char*id){return sg_core(id)?10:!strcmp(id,"SGTANK")?8:!strcmp(id,"SGOP")?6:7;}
 static int sg_targetable(uint32_t t){if(t<0x10000||t>0xEFFFFFFF)return 0;uint32_t vt=MEM32(t);return (vt==0x7F5C70||vt==0x7EB058||vt==0x7E22A4||vt==0x7E3EBC)&&sg_alive(t);}
 static uint32_t sg_drone_target(uint32_t p,uint32_t anchor,double range){
  uint32_t house=MEM32(p+0x21C),t=MEM32(p+0x2B4);
@@ -182,13 +185,21 @@ static void sg_control_tick(uint32_t f){
   if(u->spent_frame&&f>=u->spent_frame){if(u->suicide&&!u->recalled)sg_explode(p,"S_BANG34");uint32_t saved=g_ecx;g_ecx=p;hle_call_guest(0x5F65F0,0,NULL);g_ecx=saved;}
  }
 #endif
- int n=sg_vec_count(0xA8EC78);
- for(int i=0;i<n;i++){
-  uint32_t p=sg_vec_at(0xA8EC78,i),anchor=sg_controller_anchor(p);if(!anchor)continue;
-  uint32_t vt=MEM32(p);if(vt!=0x7F5C70&&vt!=0x7EB058)continue;
-  const char*id=sg_id(p,0);if(strcmp(id,"SGLINK")&&strcmp(id,"SGOP")&&strcmp(id,"SGTANK"))continue;
-  SGUnit*u=sg_state(p);if(!u||f<u->until)continue;int capacity=sg_capacity(p,u);uint32_t regen=sg_regen(p);
-  double range=sg_drone_range(id);uint32_t target=sg_drone_target(p,anchor,range);int kamikaze=strcmp(id,"SGLINK")!=0;
+ int n=sg_vec_count(0xA8EC78),nb=sg_vec_count(0xA8EB40);
+ for(int i=0;i<n+nb;i++){
+  uint32_t p=i<n?sg_vec_at(0xA8EC78,i):sg_vec_at(0xA8EB40,i-n),anchor=sg_controller_anchor(p);if(!anchor)continue;
+  uint32_t vt=MEM32(p);int building=vt==0x7E3EBC;if(i<n&&vt!=0x7F5C70&&vt!=0x7EB058)continue;
+  const char*id=sg_id(p,building);if(building?!sg_core(id):(strcmp(id,"SGLINK")&&strcmp(id,"SGOP")&&strcmp(id,"SGTANK")))continue;
+  SGUnit*u=sg_state(p);if(!u||f<u->until)continue;
+  if(building){ /* data centre under attack: force shield (20 s, 90 s cooldown) and defence drones for 30 s */
+   int hp=(int32_t)MEM32(p+0x6C);
+   if(u->lasthp&&hp<u->lasthp){u->alert_until=f+450;
+    if(f>=u->shield_next){uint32_t args[3]={300,MEM32(p+0x21C),1},saved=g_ecx;g_ecx=p;hle_call_guest(MEM32(MEM32(p)+0x154),3,args);g_ecx=saved;u->shield_next=f+1350;
+     fprintf(stderr,"[singularity] %s under attack: shield up, drones out\n",id);if(MEM32(p+0x21C)==MEM32(0xA83D4C))sg_message("Data centre under attack: shield raised, defence drones launched.");}}
+   u->lasthp=hp;
+  }
+  int capacity=sg_capacity(p,u);uint32_t regen=building?150:sg_regen(p);
+  double range=sg_drone_range(id);uint32_t target=sg_drone_target(p,anchor,range);int kamikaze=!strcmp(id,"SGOP")||!strcmp(id,"SGTANK");
   for(int j=0;j<10;j++){
    uint32_t d=u->children[j];int alive=d&&MEM32(d+0x10)==u->child_uid[j]&&sg_alive(d);
    if(alive){
@@ -320,12 +331,92 @@ void sg_building_damage(uint32_t b,uint32_t pdamage,uint32_t wh){
 #ifdef SG_DRONE_LAB
 #include "@WORKSPACE@/work/singularity/drone_lab_v06.h"
 #endif
+/* v09 Singularity effects (owner ACTIVE): random enemy grid outages of 10 s to
+   2 min with an on-screen countdown, vehicle/aircraft prices down 10% every
+   3 min (to 40%), and cyber heists of up to $1,000 roughly every 1.5 min.
+   Original-AI houses get a cash bonus, periodic hunting waves, and after an
+   enemy Singularity they converge on its data centre. 15 frames = 1 s. */
+static uint32_t sg_seed=0x9E3779B9u;static int sg_seeded;
+static uint32_t sg_rand(uint32_t n){sg_seed^=sg_seed<<13;sg_seed^=sg_seed>>17;sg_seed^=sg_seed<<5;return n?sg_seed%n:0;}
+static void sg_money(uint32_t house,int amount){uint32_t saved=g_ecx,a=(uint32_t)(amount<0?-amount:amount);g_ecx=house;hle_call_guest(amount<0?0x4F9790:0x4F9950,1,&a);g_ecx=saved;}
+static SGHouse*sg_pick_enemy(SGHouse*a,int hn){
+ SGHouse*c[32];int k=0;for(int j=0;j<hn;j++){SGHouse*t=&sg_houses[j];uint32_t ty=MEM32(t->ptr+0x34);if(t!=a&&sg_enemy(a->ptr,t->ptr)&&ty>0x10000&&strcmp((const char*)hle_ptr(ty+0x24),"Neutral")&&strcmp((const char*)hle_ptr(ty+0x24),"Special"))c[k++]=t;}
+ return k?c[sg_rand(k)]:NULL;
+}
+static int sg_ai_controlled(uint32_t h){uint32_t ty=MEM32(h+0x34);return h!=MEM32(0xA83D4C)&&ty>0x10000&&!MEM8(ty+0x1A6)&&strcmp((const char*)hle_ptr(ty+0x24),"Neutral")&&strcmp((const char*)hle_ptr(ty+0x24),"Special")&&!sg_ai_mode();}
+static int sg_civilian_role(const char*id){static const char*skip[]={"HARV","CMIN","SMIN","AMCV","SMCV","PCV","ENGINEER","SENGINEER","YENGINEER","SPY","SLAV","SGPDRONE","DRON","LCRF","SAPC","ZEP",NULL};for(int i=0;skip[i];i++)if(!strcmp(id,skip[i]))return 1;return 0;}
+static void sg_outage_timer(uint32_t house,int frames,int on){
+ uint32_t sw=sg_super(house,"SGOUTAGE");if(!sw)return;
+ if(!on){sg_super_lose(sw);return;}
+#ifndef SG_STATE_TEST
+ uint32_t saved=g_ecx,args[3]={1,0,0};if(!MEM8(sw+0x6D)){g_ecx=sw;hle_call_guest(0x6CB560,3,args);g_ecx=saved;}
+ MEM8(sw+0x6F)=0;MEM32(sw+0x30)=MEM32(RA2_GAME_FRAME_VA);MEM32(sw+0x38)=(uint32_t)frames;
+#endif
+}
+static void sg_effects(uint32_t f,int hn){
+ if(!sg_seeded){sg_seed=((uint32_t)time(NULL)*2654435761u)|1u;sg_seeded=1;} /* different events every match */
+ uint32_t player=MEM32(0xA83D4C);char msg[160];
+ for(int i=0;i<hn;i++){
+  SGHouse*a=&sg_houses[i];
+  if(sg_active(a)){
+   if(!a->next_outage)a->next_outage=f+300+sg_rand(600);
+   if(f>=a->next_outage){SGHouse*t=sg_pick_enemy(a,hn);uint32_t dur=150+sg_rand(1651);a->next_outage=f+dur+600+sg_rand(900);
+    if(t&&f>=t->outage_until){t->outage_until=f+dur;t->outage_by=a->ptr;sg_outage_timer(t->ptr,(int)dur,1);
+     fprintf(stderr,"[singularity] outage house=%08X for %u s\n",t->ptr,dur/15);
+     if(a->ptr==player){snprintf(msg,sizeof msg,"Enemy power grid hacked: offline for %u seconds.",dur/15);sg_message(msg);}
+     if(t->ptr==player){snprintf(msg,sizeof msg,"WARNING: our power grid is hacked - offline for %u seconds.",dur/15);sg_message(msg);}}}
+   if(!a->next_heist)a->next_heist=f+900+sg_rand(900);
+   if(f>=a->next_heist){SGHouse*t=sg_pick_enemy(a,hn);a->next_heist=f+900+sg_rand(900);
+    if(t){int bal=(int32_t)MEM32(t->ptr+0x30C),amt=200+(int)sg_rand(801);if(amt>bal)amt=bal;
+     if(amt>0){sg_money(t->ptr,-amt);sg_money(a->ptr,amt);fprintf(stderr,"[singularity] heist $%d from %08X\n",amt,t->ptr);
+      if(a->ptr==player){snprintf(msg,sizeof msg,"Cyber heist: $%d transferred from enemy accounts.",amt);sg_message(msg);}
+      if(t->ptr==player){snprintf(msg,sizeof msg,"WARNING: $%d stolen by enemy hackers.",amt);sg_message(msg);}}}}
+   if(!a->next_cost)a->next_cost=f+2700;
+   if(f>=a->next_cost&&a->cost_steps<6){a->cost_steps++;a->next_cost=f+2700;
+    fprintf(stderr,"[singularity] house=%08X vehicles/aircraft now %d%% cost\n",a->ptr,100-10*a->cost_steps);
+    if(a->ptr==player){snprintf(msg,sizeof msg,"Automated factories: vehicles and aircraft now cost %d%%.",100-10*a->cost_steps);sg_message(msg);}}
+  }
+  /* Price multipliers (CostUnitsMult +0x5394, CostAircraftMult +0x5398). The
+     engine recomputes them when buildings change; detect that and re-apply. */
+  for(int k=0;k<2;k++){
+   float cur;memcpy(&cur,hle_ptr(a->ptr+0x5394+4*k),4);
+   if(!a->cost_written[k]||fabsf(cur-a->cost_written[k])>1e-4f)a->cost_base[k]=cur;
+   float want=a->cost_base[k]*(1.f-0.1f*(float)a->cost_steps);
+   if(fabsf(cur-want)>1e-4f){memcpy(hle_ptr(a->ptr+0x5394+4*k),&want,4);}
+   a->cost_written[k]=want;
+  }
+  /* Grid outage ends. */
+  int cyber=f<a->outage_until;
+  if(!cyber&&a->outage_until){a->outage_until=0;sg_outage_timer(a->ptr,0,0);if(a->ptr==player)sg_message("Power grid restored.");}
+  if(a->cyber!=cyber){a->cyber=cyber;MEM8(a->ptr+0x5778)=1;fprintf(stderr,"[singularity] cyber house=%08X %s\n",a->ptr,cyber?"OUTAGE + FIRE-CONTROL FAULTS":"RESTORED");}
+ }
+ /* Original AI: income bonus, hunting waves, Singularity focus. */
+ for(int i=0;i<hn;i++){
+  SGHouse*h=&sg_houses[i];if(!sg_ai_controlled(h->ptr))continue;
+  SGHouse*core_owner=NULL;for(int j=0;j<hn;j++)if(sg_active(&sg_houses[j])&&sg_enemy(h->ptr,sg_houses[j].ptr))core_owner=&sg_houses[j];
+  if(!h->next_cash)h->next_cash=f+900;
+  if(f>=h->next_cash){h->next_cash=f+900;sg_money(h->ptr,core_owner?600:300);}
+  uint32_t core=0;
+  if(core_owner)for(int b=0;b<sg_vec_count(0xA8EB40);b++){uint32_t q=sg_vec_at(0xA8EB40,b);if(sg_alive(q)&&MEM32(q+0x21C)==core_owner->ptr&&sg_core(sg_id(q,1))){core=q;if(!strcmp(sg_id(q,1),"SGCOLO"))break;}}
+  int focus=core&&f>=h->next_focus,hunt=!h->next_hunt?(h->next_hunt=f+1800+sg_rand(900),0):f>=h->next_hunt;
+  if(!focus&&!hunt)continue;
+  if(focus)h->next_focus=f+300;
+  if(hunt)h->next_hunt=f+1800+sg_rand(900);
+  int sent=0;
+  for(int k=0;k<sg_vec_count(0xA8EC78);k++){
+   uint32_t q=sg_vec_at(0xA8EC78,k),vt=MEM32(q);if((vt!=0x7F5C70&&vt!=0x7EB058)||!sg_alive(q)||MEM32(q+0x21C)!=h->ptr||sg_civilian_role(sg_id(q,0)))continue;
+   if(focus){if(MEM32(q+0x2B4)!=core){sg_ai_order(q,core,1);sent++;}}
+   else{uint32_t m=MEM32(q+0xAC);if((m==5||m==11||m==0||m==13)&&sg_rand(10)<7){sg_ai_order(q,0,15);sent++;}}
+  }
+  if(sent)fprintf(stderr,"[singularity] AI house=%08X %s: %d units\n",h->ptr,focus?"converging on data centre":"hunting wave",sent);
+ }
+}
 void sg_tick(void) {
 #ifdef RA2_TARGET_GAMEMD
     if(!sg_on()){hle_screen_status("");return;}
     uint32_t f=MEM32(RA2_GAME_FRAME_VA);
     if(f==sg_lastframe || !f)return;
-    if(f<sg_lastframe){memset(sg_houses,0,sizeof sg_houses);memset(sg_units,0,sizeof sg_units);memset(sg_ai_brains,0,sizeof sg_ai_brains);sg_lasttick=0;}
+    if(f<sg_lastframe){memset(sg_houses,0,sizeof sg_houses);memset(sg_units,0,sizeof sg_units);memset(sg_ai_brains,0,sizeof sg_ai_brains);sg_lasttick=0;sg_seeded=0;}
     sg_lastframe=f;
     if(f<60)sg_card_images();
     sg_ai_sanitize();
@@ -393,12 +484,7 @@ void sg_tick(void) {
         if(previous!=s->state)fprintf(stderr,"[singularity] state house=%08X %s -> %s\n",h,sg_states[previous],sg_states[s->state]);
         if(f%450==0 && (s->colossus || s->nodes))fprintf(stderr,"[singularity] house=%08X nodes=%d colossus=%d powered=%d research=%u ticks\n",h,s->nodes,s->colossus,powered,s->progress);
     }
-    /* Compute all sources first, then apply opponents' grid faults. */
-    for(int i=0;i<hn;i++){
-        SGHouse*t=&sg_houses[i];int cyber=0;
-        for(int j=0;j<hn;j++){SGHouse*a=&sg_houses[j];if(sg_active(a)&&a->blackout_enabled&&sg_enemy(a->ptr,t->ptr)){cyber=1;break;}}
-        if(t->cyber!=cyber){t->cyber=cyber;MEM8(t->ptr+0x5778)=1;fprintf(stderr,"[singularity] cyber house=%08X %s\n",t->ptr,cyber?"BLACKOUT + FIRE-CONTROL FAULTS":"RESTORED");}
-    }
+    sg_effects(f,hn);
     sg_control_tick(f);
     sg_ai_tick(f);
 #ifdef SG_V07_LAB
