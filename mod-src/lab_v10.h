@@ -16,6 +16,8 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*23*/{"JUMPJET",0xA8E348,63,58,0},
  /*24*/{"MTNK",0xA83CE0,61,59,1},
  /*25*/{"SGEMPT",0xA83CE0,64,66,1},
+ /*26*/{"SGTANKC",0xA83CE0,76,50,1},
+ /*27*/{"SGSHAHED",0xA83CE0,24,70,1},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -126,6 +128,12 @@ static void sg_lab_tick(uint32_t f){
  {SGHouse*s=sg_house(houses[0]);if(s&&s->state==SG_ACTIVE&&!late_tank){late_tank=lab_spawn("MTNK",0xA83CE0,houses[0],44,72);fprintf(stderr,"[v10] f=%u Singularity ACTIVE; new tank %08X rank=%.1f\n",f,late_tank,late_tank?sg_rank(late_tank):-1);}
   if(late_tank&&f%60==0&&sg_alive(late_tank))fprintf(stderr,"[v10] f=%u new tank rank=%.1f (1.0 = one star) colossus cost=%d\n",f,sg_rank(late_tank),0);}
  if(f==1250)lab_view(50,70);
+ /* 11. China: HIVE deploys with ten light drones; one Shahed kills a power plant. */
+ if(f==220&&lab_ptr[26]&&sg_alive(lab_ptr[26]))sg_ai_order(lab_ptr[26],0,16);
+ if(f==600&&lab_ptr[26]&&sg_alive(lab_ptr[26])){SGUnit*u=sg_state(lab_ptr[26]);int n=0;const char*t="";for(int j=0;u&&j<10;j++){uint32_t d=u->children[j];if(d&&MEM32(d+0x10)==u->child_uid[j]&&sg_alive(d)){n++;t=sg_id(d,0);}}
+  fprintf(stderr,"[v10] HIVE type=%s deployed=%d drones=%d (%s)\n",sg_id(lab_ptr[26],0),MEM8(lab_ptr[26]+0x6E0),n,t);}
+ if(f==300&&lab_ptr[27]&&sg_alive(lab_ptr[27])&&lab_ptr[1]&&sg_alive(lab_ptr[1])){sg_ai_order(lab_ptr[27],lab_ptr[1],1);fprintf(stderr,"[v10] Shahed ordered on power plant hp=%d, %.1f cells\n",(int)MEM32(lab_ptr[1]+0x6C),sg_dist(lab_ptr[27],lab_ptr[1]));}
+ if(f%60==0&&f>300&&f<=900&&lab_ptr[1])fprintf(stderr,"[v10] f=%u power plant %s hp=%d; shahed %s\n",f,sg_alive(lab_ptr[1])?"alive":"DESTROYED",sg_alive(lab_ptr[1])?(int)MEM32(lab_ptr[1]+0x6C):0,lab_ptr[27]&&sg_alive(lab_ptr[27])?"flying":"gone");if(lab_ptr[27]&&sg_alive(lab_ptr[27])&&f%60==0&&f>300)fprintf(stderr,"[v10] shahed hp=%d at (%d,%d) to plant %.1f\n",(int)MEM32(lab_ptr[27]+0x6C),(int)MEM32(lab_ptr[27]+0x9C)/256,(int)MEM32(lab_ptr[27]+0xA0)/256,sg_dist(lab_ptr[27],lab_ptr[1]));
  /* 9. LINK attack order is handed to its drone. */
  if(f==1450&&sg_alive(link)){uint32_t e=0;for(int i=16;i<=25&&!e;i++)if(i!=23&&lab_ptr[i]&&sg_alive(lab_ptr[i]))e=lab_ptr[i];
   if(e){MEM8(link+0x83)=1;sg_ai_order(link,e,1);fprintf(stderr,"[v10] LINK selected + attack order on enemy %s %08X\n",sg_id(e,0),e);}}

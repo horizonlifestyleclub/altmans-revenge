@@ -131,3 +131,34 @@ add('SGEMPT','MTNK','VehicleTypes','AEGIS EMP Tank',Image='ROBO',Cost='1400',Str
     VoiceSelect='RobotTankSelect',VoiceMove='RobotTankMove',VoiceAttack='RobotTankAttackCommand')
 r['SGEMPT'].pop('Turret',None);r['SGEMPT']['Turret']='no'
 labels['Name:SGEMPT']='AEGIS EMP Tank (auto-pulse: freezes radio drones, stalls vehicles)'
+
+# ---- China: Province Drone Factory ($500) and its three drones ----
+r['SGFACT'].update(Cost='500')
+r['SGFACT']['Name']='Province Drone Factory';labels['Name:SGFACT']='Province Drone Factory'
+# 1) SHAHED: slow one-way attack drone; one is enough for a power plant.
+add('SGSHAHEDWH','SGIMPACT',None,None,Verses='100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%',CellSpread='1.2',PercentAtMax='.5',AnimList='TWLT070')
+add('SGSHAHEDHIT','SGNEEDLEHIT',None,None,Damage='800',Warhead='SGSHAHEDWH',Report='GenLargeExplosion')
+add('SGSHAHED','SGNEEDLE','VehicleTypes','Shahed Strike Drone',Image='SGSHAHED',Cost='300',Strength='100',Speed='14',JumpjetSpeed='14',
+    Primary='SGSHAHEDHIT',ElitePrimary='SGSHAHEDHIT',Prerequisite='SGFACT',Armor='light',GuardRange='12',Sight='7')
+a['SGSHAHED']={'Voxel':'yes','Remapable':'yes','Cameo':a.get('sgneedle',{}).get('Cameo','sgnecicon'),'AltCameo':a.get('sgneedle',{}).get('AltCameo','sgnecicon'),'PrimaryFireFLH':'0,0,0'}
+labels['Name:SGSHAHED']='Shahed Strike Drone ($300: one destroys a power plant)'
+# 2) NEEDLE: the existing cheap, weak kamikaze drone.
+labels['Name:SGNEEDLE']='Needle Kamikaze Drone (weak suicide attack)'
+# The Locust gun drone makes way for the three-drone roster.
+r['SGLOCUST']['TechLevel']='-1'
+# 3) HIVE: China's fibre carrier - same deploy and camp as the Bastion, but ten
+#    lighter fibre drones when deployed.
+add('SGTANKC','SGTANK','VehicleTypes','HIVE Fibre Carrier',Owner=CN,RequiredHouses=CN,ForbiddenHouses='',
+    Prerequisite='NAWEAP,SGFACT',Cost='2000',TechLevel='4')
+add('SGTANKCD','SGTANKD','VehicleTypes',None,Owner=CN,RequiredHouses=CN,UIName='Name:SGTANKCD')
+labels['Name:SGTANKC']='HIVE Fibre Carrier (D: deploy 10 s, 10 light tethered drones)'
+labels['Name:SGTANKCD']='HIVE Fibre Carrier (deployed - D: pack up 10 s)'
+add('SGFIBREGUNC','SGDRONEGUN',None,None,Damage='6')
+add('SGFIBREBOOMC','SGDRONEBOOM',None,None,Damage='150')
+add('SGFIBREC','SGFIBRE','VehicleTypes','Light fibre drone',Strength='40',
+    Primary='SGFIBREGUNC',ElitePrimary='SGFIBREGUNC',Secondary='SGFIBREBOOMC',EliteSecondary='SGFIBREBOOMC')
+# Engine Suicide=yes removes the drone before its blast lands (no damage);
+# the runtime removes these drones the frame after they fire instead.
+r['SGSHAHEDHIT']['Suicide']='no'
+add('SGNEEDLEHITV','SGNEEDLEHIT',None,None,Suicide='no')
+r['SGNEEDLE'].update(Primary='SGNEEDLEHITV',ElitePrimary='SGNEEDLEHITV')

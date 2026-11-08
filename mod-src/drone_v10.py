@@ -45,8 +45,24 @@ def fibre():
     return s
 
 
+def shahed():
+    """Shahed-style one-way attack drone: cropped delta wing, pusher prop."""
+    s = Shape(30, 30, 10)
+    z = 5
+    for i in range(14):                       # delta wing: wide at the back
+        x = 6 - i
+        half = 1.0 + i * 0.85
+        s.box((x - 0.5, -half, z - 0.5), (x + 0.5, half, z + 0.4), BODY)
+    s.box((-8.5, -9.0, z - 0.4), (-7.0, -8.0, z + 3.0), ARM)   # wingtip fins
+    s.box((-8.5, 8.0, z - 0.4), (-7.0, 9.0, z + 3.0), ARM)
+    s.cyl((8.0, 0, z), (-8.0, 0, z), 1.3, ARM)                 # fuselage
+    s.box((8.0, -0.8, z - 0.8), (9.2, 0.8, z + 0.8), LENS)      # warhead nose
+    s.cyl((-8.2, 0, z), (-9.0, 0, z), 3.0, ROTOR)              # pusher prop
+    return s
+
+
 SPOOL = 58
-MODELS = {'sgpdrone': quad, 'sgfibre': fibre}
+MODELS = {'sgpdrone': quad, 'sgfibre': fibre, 'sgshahed': shahed}
 
 
 def build(install):

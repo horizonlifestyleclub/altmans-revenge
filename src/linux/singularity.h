@@ -54,11 +54,14 @@ int sg_blocked(uint32_t p){
     if(h&&h->cyber&&(vt==0x7F5C70||vt==0x7EB058||vt==0x7E22A4))return ((f/15+MEM32(p+0x10))%10)<7;
     return 0;
 }
-static int sg_bastion(const char*id){return !strcmp(id,"SGTANK")||!strcmp(id,"SGTANKD");}
+static int sg_bastion(const char*id){return !strcmp(id,"SGTANK")||!strcmp(id,"SGTANKD")||!strcmp(id,"SGTANKC")||!strcmp(id,"SGTANKCD");}
+static int sg_hive(const char*id){return !strcmp(id,"SGTANKC")||!strcmp(id,"SGTANKCD");}
 /* v10: player-controllable drones: operator drones, Bastion fibre drones, factory strike drones. */
-static int sg_opdrone(const char*id){return !strcmp(id,"SGPDRONE")||!strcmp(id,"SGFIBRE")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
+static int sg_opdrone(const char*id){return !strcmp(id,"SGPDRONE")||!strcmp(id,"SGFIBRE")||!strcmp(id,"SGFIBREC")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
+/* One-way attack drones: removed (with a blast) the frame after they fire. */
+static int sg_kamikaze(const char*id){return !strcmp(id,"SGSHAHED")||!strcmp(id,"SGNEEDLE");}
 /* EMP-proof: cable-guided or autonomous (no radio link to jam). */
-static int sg_emp_proof(const char*id){return !strcmp(id,"SGFIBRE")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
+static int sg_emp_proof(const char*id){return !strcmp(id,"SGFIBRE")||!strcmp(id,"SGFIBREC")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
 static int sg_drone(const char*id){return sg_opdrone(id)||sg_bastion(id)||!strcmp(id,"SGSCOUT")||!strcmp(id,"SGSERAPH")||!strcmp(id,"SGNEEDLE")||!strcmp(id,"SGLOCUST")||!strcmp(id,"SGINT")||!strcmp(id,"SGNDRONE")||!strcmp(id,"SGWDRONE")||!strcmp(id,"SGHOUND")||!strcmp(id,"SGGUARD")||!strcmp(id,"SGKAMI")||!strcmp(id,"SGFACTDRONE");}
 double sg_costfactor(uint32_t h,uint32_t t){
     if(!sg_on())return 1;SGHouse*s=sg_house(h);if(!s||!s->powered||!t)return 1;
@@ -106,7 +109,7 @@ static void sg_launch_drone(uint32_t p){
  hle_call_guest(MEM32(MEM32(loco)+17*4),4,args);
 }
 static uint32_t sg_make_drone(uint32_t parent,int slot){
- uint32_t t=sg_find_unit_type(sg_bastion(sg_id(parent,0))?"SGFIBRE":"SGPDRONE"),anchor=sg_controller_anchor(parent);if(!t||!anchor)return 0;
+ uint32_t t=sg_find_unit_type(sg_hive(sg_id(parent,0))?"SGFIBREC":sg_bastion(sg_id(parent,0))?"SGFIBRE":"SGPDRONE"),anchor=sg_controller_anchor(parent);if(!t||!anchor)return 0;
  uint32_t saved=g_ecx,owner=MEM32(parent+0x21C);
  g_ecx=t;uint32_t child=hle_call_guest(MEM32(MEM32(t)+0x8C),1,&owner);g_ecx=saved;
  if(!child)return 0;
@@ -141,7 +144,7 @@ static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,i
    Bastion two on the move, five deployed, launched one at a time, 10 s relaunch. */
 static int sg_capacity(uint32_t p,SGUnit*u){if(MEM32(p)==0x7E3EBC){const char*b=sg_id(p,1);return MEM32(RA2_GAME_FRAME_VA)<u->alert_until?(!strcmp(b,"SGCOLO")?6:2):0;}
  const char*id=sg_id(p,0);float rank=sg_rank(p);
- if(sg_bastion(id))return MEM8(p+0x6E0)?5:2; /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return 1;}
+ if(sg_bastion(id))return MEM8(p+0x6E0)?(sg_hive(id)?10:5):2; /* HIVE: ten light drones */ /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return 1;}
 static uint32_t sg_regen(uint32_t p){return sg_bastion(sg_id(p,0))?150:225;}
 static int sg_core(const char*id){return !strcmp(id,"SGCOLO")||!strncmp(id,"SGNODE",6);}
 /* LINK/NEST link range: half the map. MapClass::VisibleRect (+0xFC: X,Y,W,H;
@@ -373,7 +376,7 @@ static void sg_control_tick(uint32_t f){
 #ifndef SG_STATE_TEST
  /* Spent kamikaze drones, and drones whose operator is gone, are removed a frame later. */
  for(int i=sg_vec_count(0xA8EC78)-1;i>=0;i--){
-  uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||MEM32(p)!=0x7F5C70||!sg_opdrone(sg_id(p,0)))continue;
+  uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||MEM32(p)!=0x7F5C70||(!sg_opdrone(sg_id(p,0))&&!sg_kamikaze(sg_id(p,0))))continue;
   SGUnit*u=sg_state(p);if(!u)continue;
   if(!u->spent_frame&&u->controller&&(!sg_controller_anchor(u->controller)||MEM32(u->controller+0x10)!=u->controller_uid))u->spent_frame=f+1;
   if(u->spent_frame&&f>=u->spent_frame){if(u->suicide&&!u->recalled)sg_explode(p,"S_BANG34");uint32_t saved=g_ecx;g_ecx=p;hle_call_guest(0x5F65F0,0,NULL);g_ecx=saved;}
@@ -441,6 +444,7 @@ void sg_drone_fired(uint32_t p,int weapon){
  /* B-2 release: a large blast on the target, guaranteed visible even when the
     warhead's own animation is culled. */
  if(MEM32(p)==0x7E22A4&&!strcmp(sg_id(p,0),"SGB2")){uint32_t t=MEM32(p+0x2B4);if(sg_targetable(t)){sg_explode(t,"TWLT070");sg_explode(t,"EXPLOLRG");fprintf(stderr,"[b2] bomb released on %s\n",sg_id(t,MEM32(t)==0x7E3EBC));}return;}
+ if(MEM32(p)==0x7F5C70&&sg_kamikaze(sg_id(p,0))){SGUnit*k=sg_state(p);if(k&&!k->spent_frame){k->spent_frame=MEM32(RA2_GAME_FRAME_VA)+1;k->suicide=1;}return;}
  if(weapon!=1||MEM32(p)!=0x7F5C70||!sg_opdrone(sg_id(p,0)))return;
  SGUnit*u=sg_state(p);if(u&&!u->spent_frame)u->spent_frame=MEM32(RA2_GAME_FRAME_VA)+1;
 }
@@ -839,12 +843,12 @@ static void sg_bastion_toggle(uint32_t p){
  fprintf(stderr,"[drones] Bastion %08X %s (10 s)\n",p,u->deploy_to?"DEPLOYING":"PACKING UP");
 }
 static void sg_bastion_finish(uint32_t p,SGUnit*u){
- uint32_t t=sg_find_unit_type(u->deploy_to?"SGTANKD":"SGTANK");
+ int hive=sg_hive(sg_id(p,0));uint32_t t=sg_find_unit_type(u->deploy_to?(hive?"SGTANKCD":"SGTANKD"):(hive?"SGTANKC":"SGTANK"));
  if(t)MEM32(p+0x6C4)=t; /* UnitClass::Type */
  MEM8(p+0x6E0)=(uint8_t)u->deploy_to;MEM8(p+0x6E1)=0;MEM8(p+0x6E2)=0;u->deploy_at=0;
  sg_ai_order(p,0,5);
  sg_camp(p,u,u->deploy_to);
- if(MEM32(p+0x21C)==MEM32(0xA83D4C))sg_message(u->deploy_to?"Bastion deployed: five drones launching, drone camp up (2 tents, 3 infantry each).":"Bastion mobile.");
+ if(MEM32(p+0x21C)==MEM32(0xA83D4C))sg_message(u->deploy_to?(hive?"HIVE deployed: ten drones launching, drone camp up (2 tents, 3 infantry each).":"Bastion deployed: five drones launching, drone camp up (2 tents, 3 infantry each)."):(hive?"HIVE mobile.":"Bastion mobile."));
  fprintf(stderr,"[drones] Bastion %08X %s type=%s\n",p,u->deploy_to?"DEPLOYED: 5 drones":"MOBILE: 2 drones",sg_id(p,0));
 }
 static void sg_bastion_orders(void){
