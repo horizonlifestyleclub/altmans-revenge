@@ -637,5 +637,14 @@ static const struct {const char*id,*owners,*required,*forbidden;const char*prere
 {"BRUTE","YuriCountry","","",{"YABRCK",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
 {"E1","British,French,Germans,Americans,Alliance","","",{"GAPILE",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
 {"GGI","British,French,Germans,Americans,Alliance","","",{"GAPILE",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
-{"SGLINK","Americans,British","Americans,British","",{"GAPILE","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}}
+{"SGLINK","Americans,British","Americans,British","",{"GAPILE","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"DEST","British,French,Germans,Americans,Alliance","","",{"GAYARD",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
+{"AEGIS","British,French,Germans,Americans,Alliance","","",{"GAYARD","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"DLPH","British,French,Germans,Americans,Alliance","","",{"GAYARD","GATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"CARRIER","British,French,Germans,Americans,Alliance","","",{"GAYARD","GATECH,NATECH,YATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"SUB","Russians,Confederation,Africans,Arabs","","",{"NAYARD",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
+{"HYD","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NARADR",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"DRED","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"SQD","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"BSUB","YuriCountry","","",{"YAYARD","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}}
 };

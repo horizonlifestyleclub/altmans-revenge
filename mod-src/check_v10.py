@@ -56,3 +56,6 @@ assert r['SGSTARLINK']['Image'] == 'GASSL' and a['GASSL']['Image'] == 'GAAIRC' a
 for u in ['SNIPE', 'YURI', 'BORIS', 'FLAKT']:
     assert r[u]['Occupier'] == 'yes' and r[u]['OccupyWeapon'] in r, u
 print('PASS v10 (+China roster, Starlink/Cyber): visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')
+# TRUMP: no GI voice (silent until his own lines exist).
+assert all(not v for k, v in r['SGTRUMP'].items() if k.startswith('Voice')), {k: v for k, v in r['SGTRUMP'].items() if k.startswith('Voice')}
+print('PASS v10 TRUMP silent')

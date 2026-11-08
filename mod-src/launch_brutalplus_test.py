@@ -35,6 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--llm', action='store_true')
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--model', default='qwen3:4b')
+    parser.add_argument('--map', help='versus only: another map file from work/singularity/maps (e.g. xbayopigs.map, which has water)')
     args = parser.parse_args()
     binary = t.prepare()
     mod = t.TEST / 'mods/yr' / t.PROFILE
@@ -48,7 +49,7 @@ if __name__ == '__main__':
     if not args.versus and not args.smoke_test:   # a normal game: the usual 10 starting units
         text = re.sub(r'(?m)^UnitCount=.*$', 'UnitCount=10', text, count=1)
     if args.versus:
-        shutil.copyfile(VERSUS_MAP, scene)
+        shutil.copyfile(VERSUS_MAP.with_name(args.map) if args.map else VERSUS_MAP, scene)
         text = re.sub(r'(?m)^Slot02=.*$', 'Slot02=6,%d,-2' % args.classic, text, count=1)
         os.environ['SG_BP_SPECTATE'] = '1'
         os.environ['SG_BP_AUTODEPLOY'] = '1'

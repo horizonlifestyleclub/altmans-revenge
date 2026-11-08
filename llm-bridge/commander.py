@@ -27,6 +27,7 @@ OLLAMA = os.environ.get('OLLAMA_HOST', 'http://127.0.0.1:11434')
 STANCES = ['attack', 'defend', 'harass', 'expand', 'retreat']
 TARGETS = ['core', 'factory', 'refinery', 'conyard', 'army', 'defences']
 BUILDS = ['armour', 'infantry', 'antiair', 'artillery']
+NAVY = ['off', 'build', 'defend', 'attack']
 
 SYSTEM = """You command one army in a Red Alert 2 skirmish, playing to win like a strong
 "Brutal" AI. Your units fight on their own (waves, focus fire, retreat when hurt,
@@ -40,10 +41,14 @@ Reply with ONLY one JSON object:
  "build": "armour|infantry|antiair|artillery" or a unit ID from "You can build",
  "scout": "now" or "",
  "raid": 0-8 units to send at enemy miners/refineries (0 = none),
+ "navy": "off|build|defend|attack",
  "note": "under 12 words, why"}
 attack = launch waves sooner; defend = army stays home; harass = raids, army waits;
 expand = save money, attack later; retreat = call the wave home now.
 core = the enemy Singularity: if it exists, destroy it first.
+navy (only with a shipyard): build = shipyard makes warships that guard home; defend = same,
+they fight anything near the shipyard; attack = fleet (4+ ships) sails at enemy ships, shipyards,
+then coastal buildings. The navy runs alongside the land army; it does not replace it.
 
 """
 
@@ -125,9 +130,17 @@ def describe(L, events, held=(None, 0)):
             b['house'], b['direction'], b['cells_from_our_base'],
             '%d min ago' % b['minutes_since_seen'] if b['minutes_since_seen'] >= 0 else 'never',
             b['defences'], ', has ' + ', '.join(tech) if tech else '', top(b['buildings'], 12)))
+    nv = L.get('navy')
+    if nv:
+        if not nv['have_shipyard'] and not nv['ships']:
+            out.append('Navy: you have no shipyard (no water here, or not built yet).')
+        else:
+            out.append('Navy (%s): %d warships worth %s, %s%s. Enemy ships remembered: %d (%s)%s; enemy shipyards known: %d.' % (
+                nv['order'], nv['ships'], money(nv['value']), nv['state'], ' at ' + nv['target'] if nv['target'] else '',
+                nv['enemy_ships_known'], money(nv['enemy_ships_value']), ': ' + top(nv['enemy_ship_types']) if nv['enemy_ship_types'] else '', nv['enemy_shipyards_known']))
     out.append('You can build: ' + ', '.join(L['can_build']) + '.')
     o = L['current_orders']
-    out.append('Your current orders: %s / %s / %s, raid %d.' % (o['stance'] or 'none', o['target'] or '-', o['build'] or '-', o['raid']))
+    out.append('Your current orders: %s / %s / %s, raid %d, navy %s.' % (o['stance'] or 'none', o['target'] or '-', o['build'] or '-', o['raid'], o.get('navy') or 'off'))
     out += ['Hint: ' + x for x in hints(L, held)]
     return '\n'.join(out)
 
@@ -158,6 +171,14 @@ def hints(L, held):
         h.append('An enemy base has many defences: artillery helps.')
     if L['min'] <= 8 and L['raid']['units'] == 0 and any(b['buildings'] for b in bases):
         h.append('Early game and you know an enemy base: a small raid (3-5) on its miners slows it.')
+    nv = L.get('navy') or {}
+    if nv.get('have_shipyard'):
+        if nv.get('order', 'off') == 'off':
+            h.append('You have a shipyard: set navy "build" so it makes warships.')
+        if nv.get('enemy_ships_known', 0) > nv.get('ships', 0) and nv.get('ships', 0) < 4:
+            h.append('Enemy ships outnumber yours: navy "defend" and build more.')
+        if nv.get('ships', 0) >= 4 and nv.get('state') == 'home' and (nv.get('enemy_shipyards_known') or nv.get('enemy_ships_known')):
+            h.append('Your fleet (%d ships) is ready and you know enemy naval targets: navy "attack".' % nv['ships'])
     if held[0] and held[1] >= 4:
         h.append('You have kept stance "%s" for %d minutes; check it still fits.' % held)
     return h
@@ -187,6 +208,9 @@ def clean(raw, L):
         out['build'] = out['build'].upper()
     else:
         out['build'] = 'armour'
+    nv = str(d.get('navy', '')).lower()
+    have = (L.get('navy') or {}).get('have_shipyard')
+    out['navy'] = nv if nv in NAVY else ('build' if have else 'off')
     out['note'] = out['note'].replace('"', "'").replace('\\', ' ')
     return out
 
@@ -228,7 +252,7 @@ def end_of_match(run, decisions):
     for d in decisions:
         key = (d['stance'], d['target'], d['build'])
         if key != prev:
-            lines.append('- min %d: %s / %s / %s, raid %d%s - %s' % (d['min'], *key, d.get('raid', 0), ', scout' if d.get('scout') else '', d['note']))
+            lines.append('- min %d: %s / %s / %s, raid %d%s%s - %s' % (d['min'], *key, d.get('raid', 0), ', scout' if d.get('scout') else '', ', navy ' + d['navy'] if d.get('navy', 'off') != 'off' else '', d['note']))
             prev = key
     lines.append('')
     lines.append('## Situation every 5 minutes')
@@ -398,10 +422,11 @@ def main():
         decisions.append(dict(order, min=L['min'], frame=L['frame'], seconds=round(took, 2), events=events))
         with (run / 'decisions.jsonl').open('a') as fh:
             fh.write(json.dumps(decisions[-1]) + '\n')
-        print('[commander] min %d (%.1fs)%s: %s / %s / %s%s%s - %s' % (
+        print('[commander] min %d (%.1fs)%s: %s / %s / %s%s%s%s - %s' % (
             L['min'], took, ' after [' + '; '.join(events[-3:]) + ']' if events else '',
             order['stance'], order['target'], order['build'],
-            ', raid %d' % order['raid'] if order['raid'] else '', ', scout' if order['scout'] else '', order['note']), flush=True)
+            ', raid %d' % order['raid'] if order['raid'] else '', ', scout' if order['scout'] else '',
+            ', navy ' + order['navy'] if order['navy'] != 'off' else '', order['note']), flush=True)
 
 
 if __name__ == '__main__':

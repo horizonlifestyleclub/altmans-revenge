@@ -225,3 +225,6 @@ add('SGTRUMP','E1','InfantryTypes','TRUMP',Image='PRES',Owner=ALLIES,RequiredHou
     ImmuneToPsionics='yes',Crushable='no',AllowedToStartInMultiplayer='no')
 a['PRES'].update(Cameo='sgtrumpicon',AltCameo='sgtrumpicon')
 labels['Name:SGTRUMP']='TRUMP (tariffs: all prices +10%, rising to +50%; Colossus exempt)'
+# No GI voice for TRUMP: silent until his own lines are recorded.
+for k in [k for k in r['SGTRUMP'] if k.startswith('Voice')]+['VoiceSelect','VoiceMove','VoiceAttack','VoiceFeedback','VoiceSpecialAttack','VoiceComment','VoiceDie']:
+ r['SGTRUMP'][k]=''

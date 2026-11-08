@@ -30,9 +30,12 @@ static int sg_bp_is_foot(uint32_t p){uint32_t vt=MEM32(p);return vt==0x7F5C70||v
 /* Units the coordinator may command: ground combat units not in a scripted
  * (scout / raid / defence) team. */
 static int sg_llm_reserved(uint32_t p);
+/* Warships (not transports): the fleet is run separately, never in a land wave. */
+static int sg_bp_is_ship(const char*id){static const char*s[]={"DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB","LCRF",NULL};for(int i=0;s[i];i++)if(!strcmp(id,s[i]))return 1;return 0;}
+static int sg_bp_eligible(uint32_t h,const char*id);
 static int sg_bp_free(uint32_t p,uint32_t h){
  if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_foot(p)||sg_llm_reserved(p))return 0; /* scout/raiders belong to the commander */
- const char*id=sg_ai_id(p);if(sg_civilian_role(id)||!strcmp(id,"SMIN")||!strcmp(id,"SGPDRONE")||!strcmp(id,"SGNEEDLE"))return 0;
+ const char*id=sg_ai_id(p);if(sg_civilian_role(id)||sg_bp_is_ship(id)||!strcmp(id,"SMIN")||!strcmp(id,"SGPDRONE")||!strcmp(id,"SGNEEDLE"))return 0;
  uint32_t team=MEM32(p+SG_BP_TEAM);
  if(team>=0x10000){uint32_t tt=MEM32(team+0x24);if(tt<0x10000||strncmp((const char*)hle_ptr(tt+0x24),"BPP",3))return 0;}
  return 1;
@@ -300,12 +303,14 @@ static int sg_bp_production(uint32_t h,int category){
     about 12 units plus 2 per game minute, at most 60. */
  int army=0,cap=12+2*(int)(MEM32(0xA8ED84)/900);if(cap>60)cap=60;
  for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(sg_alive(p)&&MEM32(p+0x21C)==h&&sg_bp_is_foot(p))army++;}
- if(army>=cap)return 0;
- const char*id=sg_bp_pick_unit(h,category==2,b->picks++);if(!id)return 0;
+ const char*ship=category==1?sg_llm_pick_ship(h,0):NULL; /* warships have their own cap (sg_llm_pick_ship) */
+ if(army>=cap&&!ship)return 0;
+ const char*id=ship?ship:sg_bp_pick_unit(h,category==2,b->picks++);if(!id)return 0;
  int idx;uint32_t t=sg_ai_find_type(vec,id,&idx);if(!t)return 0;
  uint32_t args[3]={t,0,0};if(sg_ai_call(h,0x4F7870,3,args)!=1)return 0;
  MEM32(h+off)=idx;b->built++;
- if(b->built%10==1)fprintf(stderr,"[brutalplus] house=%d idle factory -> %s (%d army units queued so far)\n",MEM32(h+0x30),id,b->built);
+ if(ship)fprintf(stderr,"[brutalplus] house=%d shipyard -> %s\n",MEM32(h+0x30),id);
+ else if(b->built%10==1)fprintf(stderr,"[brutalplus] house=%d idle factory -> %s (%d army units queued so far)\n",MEM32(h+0x30),id,b->built);
  return 1;
 }
 static void sg_bp_tick(uint32_t f){

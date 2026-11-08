@@ -81,6 +81,7 @@ SG_BUILDINGS = ['SGFACT', 'SGJAM', 'SGAEGIS', 'SGCOLO'] + ['SGNODE%d' % i for i 
 PLANNED = SG_BUILDINGS + ['GAWEAP', 'NAWEAP', 'YAWEAP', 'GAPILE', 'NAHAND', 'YABRCK']   # runtime eligibility table
 PLANNED += ['HTNK', 'HTK', 'V3', 'APOC', 'SGSHAHED', 'SGTANKC', 'SGEMPT', 'LTNK', 'YTNK', 'MTNK', 'FV', 'SREF', 'SGTANK', 'TNKD',
             'E2', 'FLAKT', 'SGOP', 'INIT', 'BRUTE', 'E1', 'GGI', 'SGLINK']   # idle-factory army units
+PLANNED += ['DEST', 'AEGIS', 'DLPH', 'CARRIER', 'SUB', 'HYD', 'DRED', 'SQD', 'BSUB']   # Qwen commander's fleet
 for b in SG_BUILDINGS:
     if b in r:
         r[b]['AIBuildThis'] = 'yes'

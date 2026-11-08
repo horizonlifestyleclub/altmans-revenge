@@ -45,6 +45,7 @@ typedef struct {
  char types_seen[96][24];int ntypes;
  int prev_hp,prev_army_dist,wave_was_engaged;uint32_t last_attacked;
  char events[700];int elen;uint32_t score_min;
+ char navy[10];int fleet_state,fleet_launch;uint32_t fleet_target,fleet_tuid,fleet_since;char fleet_tid[24];
 } SGLLM;
 static SGLLM sg_llm;
 /* Where the ledger and orders live: SG_LLM_DIR if a launcher set it, otherwise
@@ -75,7 +76,7 @@ static int sg_llm_house(uint32_t h){
  if(!sg_llm.house){sg_llm.house=h;sg_llm_spawn();}return sg_llm.house==h;}
 static int sg_llm_live(uint32_t h){return sg_llm_house(h)&&sg_llm.got&&MEM32(0xA8ED84)-sg_llm.got<900;}
 static int sg_llm_is(uint32_t h,const char*field,const char*value){if(!sg_llm_live(h))return 0;
- const char*v=!strcmp(field,"stance")?sg_llm.stance:!strcmp(field,"target")?sg_llm.target:sg_llm.build;return !strcmp(v,value);}
+ const char*v=!strcmp(field,"stance")?sg_llm.stance:!strcmp(field,"target")?sg_llm.target:!strcmp(field,"navy")?sg_llm.navy:sg_llm.build;return !strcmp(v,value);}
 static void sg_llm_event(const char*fmt,...){
  char e[160];va_list ap;va_start(ap,fmt);vsnprintf(e,sizeof e,fmt,ap);va_end(ap);
  for(char*c=e;*c;c++)if(*c=='"'||*c==92||*c<32)*c=' ';
@@ -85,6 +86,7 @@ static int sg_llm_keyword(const char*v,const char*const*list){for(int i=0;list[i
 static const char*const SG_LLM_STANCES[]={"attack","defend","harass","expand","retreat",NULL};
 static const char*const SG_LLM_TARGETS[]={"core","factory","refinery","conyard","army","defences",NULL};
 static const char*const SG_LLM_BUILDS[]={"armour","infantry","antiair","artillery",NULL};
+static const char*const SG_LLM_NAVY[]={"off","build","defend","attack",NULL};
 static int sg_llm_is_id(const char*v){if(strlen(v)<2||strlen(v)>14)return 0;for(const char*c=v;*c;c++)if(!((*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')||*c=='_'))return 0;return 1;}
 static int sg_llm_is_defence(const char*id){static const char*d[]={"GAPILL","NALASR","TESLA","ATESLA","GAPRSM","NABNKR","YAGGUN","GATSEN","NAFLAK","GASAM","NASAM","YAPSYT","GAGAP","SGAEGIS","GAWALL","NAWALL",NULL};for(int i=0;d[i];i++)if(!strcmp(id,d[i]))return 1;return 0;}
 
@@ -133,7 +135,8 @@ static void sg_llm_read_orders(uint32_t f){
  char path[600];snprintf(path,sizeof path,"%s/orders.json",sg_llm_dir());
  FILE*fp=fopen(path,"rb");if(!fp)return;char buf[1024];size_t n=fread(buf,1,sizeof buf-1,fp);fclose(fp);buf[n]=0;
  int q=sg_llm_json_int(buf,"seq");if(q<=0||q==sg_llm.seq)return;
- char stance[12],target[16],build[16],scout[8],note[96];
+ char stance[12],target[16],build[16],scout[8],note[96],navy[10];
+ sg_llm_json_str(buf,"navy",navy,sizeof navy);if(!sg_llm_keyword(navy,SG_LLM_NAVY))navy[0]=0;
  sg_llm_json_str(buf,"stance",stance,sizeof stance);sg_llm_json_str(buf,"target",target,sizeof target);
  sg_llm_json_str(buf,"build",build,sizeof build);sg_llm_json_str(buf,"scout",scout,sizeof scout);sg_llm_json_str(buf,"note",note,sizeof note);
  int raid=sg_llm_json_int(buf,"raid");if(raid<0)raid=0;if(raid>8)raid=8;
@@ -141,10 +144,10 @@ static void sg_llm_read_orders(uint32_t f){
  if(!sg_llm_keyword(stance,SG_LLM_STANCES)){fprintf(stderr,"[llm] ignored orders #%d (bad stance '%s')\n",q,stance);return;}
  if(!sg_llm_keyword(target,SG_LLM_TARGETS)&&!sg_llm_is_id(target))target[0]=0;
  if(!sg_llm_keyword(build,SG_LLM_BUILDS)&&!sg_llm_is_id(build))build[0]=0;
- int changed=strcmp(stance,sg_llm.stance)||strcmp(target,sg_llm.target)||strcmp(build,sg_llm.build)||raid!=sg_llm.raid_n||!strcmp(scout,"now");
+ int changed=strcmp(stance,sg_llm.stance)||strcmp(target,sg_llm.target)||strcmp(build,sg_llm.build)||raid!=sg_llm.raid_n||!strcmp(scout,"now")||strcmp(navy,sg_llm.navy);memcpy(sg_llm.navy,navy,sizeof navy);
  memcpy(sg_llm.stance,stance,sizeof stance);memcpy(sg_llm.target,target,sizeof target);memcpy(sg_llm.build,build,sizeof build);memcpy(sg_llm.note,note,sizeof note);
  memcpy(sg_llm.scout_req,scout,sizeof scout);sg_llm.raid_n=raid;sg_llm.got=f;
- if(changed)fprintf(stderr,"[llm] min=%u orders #%d: stance=%s target=%s build=%s raid=%d scout=%s \"%s\"\n",f/900,q,stance,target[0]?target:"-",build[0]?build:"-",raid,scout[0]?scout:"-",note);
+ if(changed)fprintf(stderr,"[llm] min=%u orders #%d: stance=%s target=%s build=%s raid=%d scout=%s navy=%s \"%s\"\n",f/900,q,stance,target[0]?target:"-",build[0]?build:"-",raid,scout[0]?scout:"-",navy[0]?navy:"-",note);
 }
 
 /* ---- memory of what we have seen ---- */
@@ -255,6 +258,65 @@ static void sg_llm_raid(SGBPBrain*b,uint32_t f){
  sg_llm_event("raid of %d units sent at enemy %s %s %d cells",sg_llm.rn,best->id,sg_llm_dir8(best->x-b->sx,best->y-b->sy),sg_llm_cells(best->x-b->sx,best->y-b->sy));
 }
 
+
+/* ---- navy: the shipyard builds a fleet, which guards home or attacks ---- */
+static const char*sg_llm_yard(uint32_t h,int*x,int*y){static const char*yards[]={"GAYARD","NAYARD","YAYARD",NULL};
+ for(int i=0;i<sg_vec_count(0xA8EB40);i++){uint32_t q=sg_vec_at(0xA8EB40,i);if(!sg_alive(q)||MEM32(q+0x21C)!=h)continue;const char*id=sg_ai_id(q);
+  for(int k=0;yards[k];k++)if(!strcmp(id,yards[k])){if(x){*x=MEM32(q+0x9C);*y=MEM32(q+0xA0);}return yards[k];}}
+ return NULL;}
+static int sg_llm_fleet(uint32_t h,int*value){int n=0,v=0;for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);
+ if(sg_alive(p)&&MEM32(p+0x21C)==h&&sg_bp_is_ship(sg_ai_id(p))){n++;v+=sg_bp_cost(sg_ai_id(p));}}if(value)*value=v;return n;}
+static int sg_llm_navy_on(uint32_t h){return sg_llm_live(h)&&sg_llm.navy[0]&&strcmp(sg_llm.navy,"off");}
+/* Called by the idle-factory picker for vehicles: every other pick is a ship
+   while the commander wants a navy, we own a shipyard and the fleet is small. */
+static const char*sg_llm_pick_ship(uint32_t h,unsigned turn){
+ static unsigned k;if(!sg_llm_navy_on(h)||!sg_llm_yard(h,NULL,NULL)||k++%2)return NULL;turn=k/2;
+ int cap=!strcmp(sg_llm.navy,"attack")?10:6;if(sg_llm_fleet(h,NULL)>=cap)return NULL;
+ int side=MEM32(h+0x1E8);const char*c[6];int n=0;
+#define SH(id) do{if(n<6&&sg_bp_eligible(h,id))c[n++]=id;}while(0)
+ if(side==1){SH("SUB");SH("HYD");SH("SUB");SH("DRED");SH("SQD");}
+ else if(side==2){SH("BSUB");}
+ else{SH("DEST");SH("DEST");SH("AEGIS");SH("DLPH");SH("CARRIER");}
+#undef SH
+ return n?c[turn%n]:NULL;}
+static SGLLMSeen*sg_llm_navy_target(int hx,int hy,uint32_t f){
+ /* enemy ships and shipyards first, then any remembered enemy building */
+ SGLLMSeen*best=NULL;double bd=1e30;
+ for(int pass=0;pass<2&&!best;pass++)for(int j=0;j<384;j++){SGLLMSeen*s=&sg_llm.seen[j];if(!s->seen||!sg_llm_uid_ok(s->ptr,s->uid))continue;
+  int naval=sg_bp_is_ship(s->id)||strstr(s->id,"YARD")!=NULL;if(pass==0?!naval||(!s->building&&f-s->seen>900):!s->building)continue;
+  double d=sg_llm_cells(s->x-hx,s->y-hy);if(d<bd){bd=d;best=s;}}
+ return best;}
+static void sg_llm_navy(SGBPBrain*b,uint32_t f){
+ uint32_t h=b->house;int hx,hy;if(!sg_llm_yard(h,&hx,&hy)){hx=b->sx;hy=b->sy;}
+ int value,n=sg_llm_fleet(h,&value);if(!n){if(sg_llm.fleet_state){sg_llm_event("our fleet was destroyed");sg_llm.fleet_state=0;}return;}
+ const char*order=sg_llm_live(h)&&sg_llm.navy[0]?sg_llm.navy:"build";
+ #define FLEET_EACH for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_ship(sg_ai_id(p)))continue;
+ if(sg_llm.fleet_state){
+  int tdead=!sg_llm_uid_ok(sg_llm.fleet_target,sg_llm.fleet_tuid);
+  if(strcmp(order,"attack")||value*10<sg_llm.fleet_launch*3||f-sg_llm.fleet_since>9000){
+   sg_llm_event(strcmp(order,"attack")?"fleet called home (%d ships)":"fleet retreating: %d ships left",n);FLEET_EACH sg_bp_move(p,hx,hy);}
+   sg_llm.fleet_state=0;return;}
+  if(tdead){SGLLMSeen*t=sg_llm_navy_target(hx,hy,f);sg_llm_event("fleet destroyed enemy %s",sg_llm.fleet_tid);
+   if(!t){sg_llm_event("fleet has no more known targets: coming home");FLEET_EACH sg_bp_move(p,hx,hy);}sg_llm.fleet_state=0;return;}
+   sg_llm.fleet_target=t->ptr;sg_llm.fleet_tuid=t->uid;snprintf(sg_llm.fleet_tid,sizeof sg_llm.fleet_tid,"%s",t->id);}
+  if(f%150<15){FLEET_EACH if(MEM32(p+0xAC)!=1)sg_bp_order(p,sg_llm.fleet_target,1);}}
+  return;}
+ /* at home: guard the shipyard; attack when ordered and the fleet is big enough */
+ if(!strcmp(order,"attack")&&(n>=4||value>=4000)){SGLLMSeen*t=sg_llm_navy_target(hx,hy,f);
+  if(t){sg_llm.fleet_state=1;sg_llm.fleet_launch=value;sg_llm.fleet_since=f;sg_llm.fleet_target=t->ptr;sg_llm.fleet_tuid=t->uid;snprintf(sg_llm.fleet_tid,sizeof sg_llm.fleet_tid,"%s",t->id);
+   FLEET_EACH sg_bp_order(p,t->ptr,1);}
+   sg_llm_event("fleet of %d ships ($%d) sent at enemy %s %s %d cells",n,value,t->id,sg_llm_dir8(t->x-hx,t->y-hy),sg_llm_cells(t->x-hx,t->y-hy));return;}
+  if(f%900<15)sg_llm_event("fleet cannot attack: no enemy ship, shipyard or building known yet (scout first)");}
+ if(f%45>=15)return;
+ uint32_t close=0;double cd=18;
+ for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||!sg_enemy(h,MEM32(p+0x21C))||!sg_ai_visible(h,p))continue;
+  double d=sg_llm_cells((int32_t)MEM32(p+0x9C)-hx,(int32_t)MEM32(p+0xA0)-hy);if(d<cd){cd=d;close=p;}}
+ FLEET_EACH uint32_t m=MEM32(p+0xAC);
+  if(close){if(m!=1)sg_bp_order(p,close,1);}
+  else if((m==0||m==5||m==11)&&sg_llm_cells((int32_t)MEM32(p+0x9C)-hx,(int32_t)MEM32(p+0xA0)-hy)>10)sg_bp_move(p,hx,hy);}
+ #undef FLEET_EACH
+}
+
 /* ---- the ledger ---- */
 typedef struct {char id[24];int n;} SGLLMTally;
 static void sg_llm_tally(SGLLMTally*t,int*nt,int max,const char*id){for(int i=0;i<*nt;i++)if(!strcmp(t[i].id,id)){t[i].n++;return;}if(*nt<max){size_t k=0;for(;id[k]&&k+1<sizeof t[0].id;k++){char c=id[k];t[*nt].id[k]=(c>32&&c<127&&c!='"'&&c!=92)?c:'_';}t[*nt].id[k]=0;t[*nt].n=1;(*nt)++;}} /* type names go into JSON: plain ASCII only */
@@ -297,7 +359,7 @@ static void sg_llm_write(SGBPBrain*b,uint32_t f){
  n+=snprintf(o+n,S-n,"\"raid\":{\"units\":%d,\"target\":\"%s\"},",ralive,sg_llm.rn?sg_llm.raid_tid:"");
  n=sg_llm_put_tally(o,n,S,"my_units",mu,nmu);n+=snprintf(o+n,S-n,",");n=sg_llm_put_tally(o,n,S,"my_buildings",mb,nmb);
  /* what we can build right now (for named build orders) */
- static const char*cand[]={"E1","E2","GGI","FLAKT","SGOP","SGLINK","INIT","BRUTE","MTNK","FV","SREF","TNKD","SGTANK","SGEMPT","HTNK","HTK","V3","APOC","SGSHAHED","SGTANKC","LTNK","YTNK",NULL};
+ static const char*cand[]={"E1","E2","GGI","FLAKT","SGOP","SGLINK","INIT","BRUTE","MTNK","FV","SREF","TNKD","SGTANK","SGEMPT","HTNK","HTK","V3","APOC","SGSHAHED","SGTANKC","LTNK","YTNK","DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB",NULL};
  n+=snprintf(o+n,S-n,",\"can_build\":[");int nc=0;for(int i=0;cand[i];i++)if(sg_bp_eligible(h,cand[i]))n+=snprintf(o+n,S-n,"%s\"%s\"",nc++?",":"",cand[i]);n+=snprintf(o+n,S-n,"]");
  /* in sight right now */
  n+=snprintf(o+n,S-n,",\"in_sight\":{\"units\":%d,\"value\":%d,\"near_my_base\":%d,\"near_my_ore\":%d,\"air_or_drones\":%d,",eunits,evalue,near_base,near_ore,eair);
@@ -312,6 +374,13 @@ static void sg_llm_write(SGBPBrain*b,uint32_t f){
  n+=snprintf(o+n,S-n,",\"enemy_army_known\":{\"units\":%d,\"value\":%d,\"air_or_drones\":%d,\"seconds_since_seen\":%d,\"direction\":\"%s\",\"cells_from_our_base\":%d,\"heading\":\"%s\",",
   ku,kv,kair,ku?(int)(f-newest)/15:-1,kdir,kd,heading);
  n=sg_llm_put_tally(o,n,S,"types",kt,nkt);n+=snprintf(o+n,S-n,"}");
+ /* navy: ours, and enemy ships/shipyards we remember */
+ {int fv,fnum=sg_llm_fleet(h,&fv),es=0,ev=0,ey=0;SGLLMTally nt[20];int nnt=0;
+  for(int j=0;j<384;j++){SGLLMSeen*s=&sg_llm.seen[j];if(!s->seen)continue;if(s->building){if(strstr(s->id,"YARD"))ey++;}else if(sg_bp_is_ship(s->id)&&f-s->seen<1800){es++;ev+=s->cost;sg_llm_tally(nt,&nnt,20,s->id);}}
+  const char*yard=sg_llm_yard(h,NULL,NULL);
+  n+=snprintf(o+n,S-n,",\"navy\":{\"order\":\"%s\",\"have_shipyard\":%d,\"ships\":%d,\"value\":%d,\"state\":\"%s\",\"target\":\"%s\",\"enemy_ships_known\":%d,\"enemy_ships_value\":%d,\"enemy_shipyards_known\":%d,",
+   sg_llm.navy[0]?sg_llm.navy:"off",yard!=NULL,fnum,fv,sg_llm.fleet_state?"attacking":"home",sg_llm.fleet_state?sg_llm.fleet_tid:"",es,ev,ey);
+  n=sg_llm_put_tally(o,n,S,"enemy_ship_types",nt,nnt);n+=snprintf(o+n,S-n,"}");}
  /* remembered enemy bases */
  n+=snprintf(o+n,S-n,",\"enemy_bases\":[");
  for(int k=0;k<sg_llm.nstarts;k++){SGLLMStart*st=&sg_llm.starts[k];SGLLMTally bt[40];int nbt=0,defs=0,air=0,sing=0,drones=0,navy=0;uint32_t last=0;
@@ -322,8 +391,8 @@ static void sg_llm_write(SGBPBrain*b,uint32_t f){
   n+=snprintf(o+n,S-n,"%s{\"house\":%d,\"direction\":\"%s\",\"cells_from_our_base\":%d,\"scouted\":%s,\"minutes_since_seen\":%d,\"defences\":%d,\"has_air\":%d,\"has_singularity\":%d,\"has_drones\":%d,\"has_navy\":%d,",
    k?",":"",st->house,sg_llm_dir8(st->x-b->sx,st->y-b->sy),sg_llm_cells(st->x-b->sx,st->y-b->sy),st->scouted?"true":"false",last?(int)(f-last)/900:-1,defs,air,sing,drones,navy);
   n=sg_llm_put_tally(o,n,S,"buildings",bt,nbt);n+=snprintf(o+n,S-n,"}");}
- n+=snprintf(o+n,S-n,"],\"events\":[%s],\"current_orders\":{\"seq\":%d,\"stance\":\"%s\",\"target\":\"%s\",\"build\":\"%s\",\"raid\":%d,\"live\":%d}}\n",
-  sg_llm.events,sg_llm.seq,sg_llm.stance,sg_llm.target,sg_llm.build,sg_llm.raid_n,sg_llm_live(h));
+ n+=snprintf(o+n,S-n,"],\"events\":[%s],\"current_orders\":{\"seq\":%d,\"stance\":\"%s\",\"target\":\"%s\",\"build\":\"%s\",\"raid\":%d,\"navy\":\"%s\",\"live\":%d}}\n",
+  sg_llm.events,sg_llm.seq,sg_llm.stance,sg_llm.target,sg_llm.build,sg_llm.raid_n,sg_llm.navy,sg_llm_live(h));
  sg_llm.elen=0;sg_llm.events[0]=0;
  if(n>=S-1)return;
  char path[600],tmp[620];snprintf(path,sizeof path,"%s/ledger.json",sg_llm_dir());snprintf(tmp,sizeof tmp,"%s.tmp",path);
@@ -363,7 +432,7 @@ static void sg_llm_frame(SGBPBrain*b,uint32_t f){
   if(sg_llm.prev_hp&&hp<sg_llm.prev_hp-50&&f-sg_llm.last_attacked>300){sg_llm.last_attacked=f;sg_llm_event("our base is being attacked");}
   sg_llm.prev_hp=hp;
   if(b->state&&!sg_llm.wave_was_engaged){int e=0;for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i])&&sg_bp_engaged(h,b->wave[i]))e++;if(e>=2){sg_llm.wave_was_engaged=1;sg_llm_event("our wave is now fighting (%d units engaged)",e);}}
-  sg_llm_scout(b,f);sg_llm_raid(b,f);}
+  sg_llm_scout(b,f);sg_llm_raid(b,f);sg_llm_navy(b,f);}
  if(sg_llm.elen&&sg_llm.last_write&&f-sg_llm.last_write>=15)sg_llm_write(b,f);
 }
 static void sg_llm_tick(SGBPBrain*b,uint32_t f,int threat){
