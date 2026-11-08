@@ -19,7 +19,8 @@ static const char*sg_states[]={"OFFLINE","READY","RESEARCHING","INTEGRATING","AC
 static int sg_active(SGHouse*s){return s&&s->state==SG_ACTIVE&&s->powered;}
 static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t type=MEM32(b+0x34);if(type>=0x10000&&MEM8(type+0x1A6))return 0;int ix=MEM32(b+0x30);return ix>=0&&ix<32&&!(MEM32(a+0x5788)&(1u<<ix));}
 
-typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled,lasthp; uint32_t alert_until,shield_next; int32_t cable[3];} SGUnit;
+typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled,lasthp; uint32_t alert_until,shield_next; int32_t cable[3];
+ int mode,own,dive,tethered,elite; uint32_t ord_target,ord_dest,last_launch,dkey_seen;} SGUnit; /* v10: drone stance/ownership */
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -128,24 +129,47 @@ static float sg_rank(uint32_t p){float v;memcpy(&v,hle_ptr(p+0x150),4);return is
    runtime-owned, non-selectable units that attack whatever the operator is
    attacking, or the nearest enemy in range, like a GI firing; then return.
    (The engine's carrier launcher crashed on infantry/land carriers.) */
-static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);static void sg_bastion_orders(void);static void sg_message(const char*);
+static void sg_ai_order(uint32_t,uint32_t,int);static void sg_ai_move(uint32_t,int,int);static uint32_t sg_ai_cell(int,int);static void sg_bastion_orders(void);static void sg_message(const char*);
+/* v10: LINK keeps one drone (15 s relaunch); NEST two (three veteran);
+   Bastion two on the move, five deployed, launched one at a time, 10 s relaunch. */
 static int sg_capacity(uint32_t p,SGUnit*u){if(MEM32(p)==0x7E3EBC){const char*b=sg_id(p,1);return MEM32(RA2_GAME_FRAME_VA)<u->alert_until?(!strcmp(b,"SGCOLO")?6:2):0;}
  const char*id=sg_id(p,0);float rank=sg_rank(p);
- if(!strcmp(id,"SGTANK"))return MEM8(p+0x6E0)?10:2; /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return rank>=2?3:rank>=1?2:1;}
-static uint32_t sg_regen(uint32_t p){float rank=sg_rank(p);return rank>=2?225:rank>=1?330:450;}
+ if(!strcmp(id,"SGTANK"))return MEM8(p+0x6E0)?5:2; /* UnitClass::Deployed */if(!strcmp(id,"SGOP"))return rank>=1?3:2;return 1;}
+static uint32_t sg_regen(uint32_t p){return !strcmp(sg_id(p,0),"SGTANK")?150:225;}
 static int sg_core(const char*id){return !strcmp(id,"SGCOLO")||!strncmp(id,"SGNODE",6);}
-static double sg_drone_range(const char*id){return sg_core(id)?10:!strcmp(id,"SGTANK")?8:!strcmp(id,"SGOP")?6:7;}
+/* LINK/NEST link range: half the map. MapClass::VisibleRect (+0xFC: X,Y,W,H;
+   measured against the map's LocalSize) width+height spans the diamond in cells. */
+static double sg_half_map(void){
+ static int logged;int w=(int32_t)MEM32(0x87F7E8+0x104),h=(int32_t)MEM32(0x87F7E8+0x108);
+ double half=(w>0&&h>0&&w<512&&h<512)?(w+h)/2.:40;if(half<15)half=15;if(half>120)half=120;
+ if(!logged){logged=1;fprintf(stderr,"[drones] map rect %dx%d: link range %.0f cells\n",w,h,half);}
+ return half;
+}
+static double sg_drone_range(const char*id){return sg_core(id)?10:!strcmp(id,"SGTANK")?14:sg_half_map();}
+/* Drones guard their operator within this radius when not parked elsewhere. */
+#define SG_GUARD_RADIUS 6.0
 static int sg_targetable(uint32_t t){if(t<0x10000||t>0xEFFFFFFF)return 0;uint32_t vt=MEM32(t);return (vt==0x7F5C70||vt==0x7EB058||vt==0x7E22A4||vt==0x7E3EBC)&&sg_alive(t);}
 static uint32_t sg_drone_target(uint32_t p,uint32_t anchor,double range){
  uint32_t house=MEM32(p+0x21C),t=MEM32(p+0x2B4);
  if(sg_targetable(t)&&sg_enemy(house,MEM32(t+0x21C))&&sg_dist(anchor,t)<=range+1)return t;
- uint32_t best=0;double bd=range;
+ return 0;
+}
+/* v10: nearest enemy unit around `at` (drones engage what is near them, not
+   everything inside the long link range). Gun stance hunts infantry only;
+   suicide stance hunts vehicles only; -1 = anything (data-centre defence). */
+static uint32_t sg_near_enemy(uint32_t house,uint32_t at,double radius,int vehicles_only){
+ uint32_t best=0;double bd=radius;
  for(int i=0;i<sg_vec_count(0xA8EC78);i++){
   uint32_t q=sg_vec_at(0xA8EC78,i),vt=MEM32(q);if((vt!=0x7F5C70&&vt!=0x7EB058)||!sg_alive(q)||!sg_enemy(house,MEM32(q+0x21C)))continue;
-  if(!strcmp(sg_id(q,0),"SGPDRONE"))continue;double d=sg_dist(anchor,q);if(d<=bd){bd=d;best=q;}
+  if(vehicles_only==1&&vt!=0x7F5C70)continue;
+  if(vehicles_only==0&&vt!=0x7EB058)continue;
+  if(!strcmp(sg_id(q,0),"SGPDRONE"))continue;double d=sg_dist(at,q);if(d<=bd){bd=d;best=q;}
  }
  return best;
 }
+static int sg_ctrl_down;static uint32_t sg_dkey_frame;
+static void sg_drone_cmd(uint32_t d,SGUnit*du,uint32_t target,int mission){sg_ai_order(d,target,mission);du->ord_target=MEM32(d+0x2B4);du->ord_dest=MEM32(d+0x5A4);}
+static void sg_drone_goto(uint32_t d,SGUnit*du,int x,int y){sg_ai_move(d,x,y);du->ord_target=MEM32(d+0x2B4);du->ord_dest=MEM32(d+0x5A4);}
 /* One-off explosion animation at an object's position (AnimClass, 0x1C8 bytes). */
 static void sg_explode(uint32_t at,const char*anim){
 #ifndef SG_STATE_TEST
@@ -199,23 +223,55 @@ static void sg_control_tick(uint32_t f){
    u->lasthp=hp;
   }
   int capacity=sg_capacity(p,u);uint32_t regen=building?150:sg_regen(p);
-  double range=sg_drone_range(id);uint32_t target=sg_drone_target(p,anchor,range);int kamikaze=!strcmp(id,"SGOP")||!strcmp(id,"SGTANK");
+  double range=sg_drone_range(id);uint32_t target=building?0:sg_drone_target(p,anchor,range);int tank=!strcmp(id,"SGTANK");
+  /* v10: a new move order to the operator calls its un-parked drones along. */
+  uint32_t opm=MEM32(p+0xAC);int opmoving=!building&&(opm==2||opm==3);
+  uint32_t player=MEM32(0xA83D4C);
   for(int j=0;j<10;j++){
    uint32_t d=u->children[j];int alive=d&&MEM32(d+0x10)==u->child_uid[j]&&sg_alive(d);
    if(alive){
     SGUnit*du=sg_state(d);if(!du)continue;
     float rank=sg_rank(d);if(rank>du->credited_rank){float parentrank=sg_rank(p)+(rank-du->credited_rank)*150.f/700.f;memcpy(hle_ptr(p+0x150),&parentrank,4);du->credited_rank=rank;}
-    du->suicide=kamikaze;
+    if(building)du->mode=1; /* data-centre defence drones always dive */
+    du->tethered=tank;
     if(j>=capacity){du->spent_frame=f+1;du->recalled=1;continue;} /* packed up: extra drones return to the racks */
-    if(!strcmp(id,"SGTANK")){if(!du->cable[0]&&!du->cable[1]){du->cable[0]=(int32_t)MEM32(anchor+0x9C);du->cable[1]=(int32_t)MEM32(anchor+0xA0);du->cable[2]=(int32_t)MEM32(anchor+0xA4)+60;}sg_cable(du->cable,d);}
-    if(target){if(MEM32(d+0x2B4)!=target)sg_ai_order(d,target,1);}
-    else if(sg_dist(d,anchor)>2.5){int x=(int32_t)MEM32(anchor+0x9C)/256+(j%3)-1,y=(int32_t)MEM32(anchor+0xA0)/256+(j/3%3)-1;sg_ai_move(d,x,y);}
+    if(tank){if(!du->cable[0]&&!du->cable[1]){du->cable[0]=(int32_t)MEM32(anchor+0x9C);du->cable[1]=(int32_t)MEM32(anchor+0xA0);du->cable[2]=(int32_t)MEM32(anchor+0xA4)+60;}sg_cable(du->cable,d);}
+    /* Player orders: a selected drone whose target/destination changed to
+       something the runtime did not set was ordered by the player. Ctrl held
+       at that moment (force-fire) makes the attack a suicide dive. */
+    uint32_t dt=MEM32(d+0x2B4),dd=MEM32(d+0x5A4);
+    if(MEM32(d+0x21C)==player&&MEM8(d+0x83)&&((dt&&dt!=du->ord_target)||(dd&&dd!=du->ord_dest))){
+     du->own=1;du->dive=dt&&dt!=du->ord_target&&sg_ctrl_down;du->ord_target=dt;du->ord_dest=dd;
+     if(du->dive)fprintf(stderr,"[drones] drone %08X ordered to DIVE on %08X\n",d,dt);
+    }
+    if(du->dive&&!sg_targetable(MEM32(d+0x2B4)))du->dive=0;
+    du->suicide=du->mode||du->dive;
+    double fromop=sg_dist(d,anchor);
+    if(fromop>range+2){ /* out of link range: fly back */
+     if(du->own||fromop>range+3){du->own=0;du->dive=0;}
+     int x=(int32_t)MEM32(anchor+0x9C)+256*((j%3)-1),y=(int32_t)MEM32(anchor+0xA0)+256*((j/3%3)-1); /* leptons, as sg_ai_cell expects */sg_drone_goto(d,du,x,y);continue;
+    }
+    if(du->own){
+     /* Parked/loitering where the player sent it: engage what comes near. */
+     uint32_t m=MEM32(d+0xAC);int idle=m==5||m==0||m==11||m==13;
+     if(idle&&!sg_targetable(MEM32(d+0x2B4))){uint32_t near=sg_near_enemy(MEM32(d+0x21C),d,5,du->mode);if(near)sg_drone_cmd(d,du,near,1);}
+     continue;
+    }
+    uint32_t want=target;
+    if(!want){uint32_t cur=MEM32(d+0x2B4);if(sg_targetable(cur)&&sg_enemy(MEM32(d+0x21C),MEM32(cur+0x21C))&&sg_dist(anchor,cur)<=SG_GUARD_RADIUS+1)want=cur;}
+    if(!want&&!opmoving)want=sg_near_enemy(MEM32(d+0x21C),anchor,building?10:SG_GUARD_RADIUS,building?-1:du->mode);
+    if(want){if(MEM32(d+0x2B4)!=want)sg_drone_cmd(d,du,want,1);}
+    else if(fromop>2.5||(opmoving&&fromop>1.5)){int x=(int32_t)MEM32(anchor+0x9C)+256*((j%3)-1),y=(int32_t)MEM32(anchor+0xA0)+256*((j/3%3)-1); /* leptons, as sg_ai_cell expects */
+     uint32_t cell=sg_ai_cell(x,y);if(cell&&MEM32(d+0x5A4)!=cell)sg_drone_goto(d,du,x,y);}
     continue;
    }
-   if(d){u->children[j]=0;u->ready[j]=f+regen;}
+   if(d){u->children[j]=0;u->ready[j]=f+regen;if(MEM32(p+0x21C)==player&&!strcmp(id,"SGLINK"))fprintf(stderr,"[drones] LINK drone lost: relaunch in %u s\n",regen/15);}
    if(j>=capacity)continue;
    if(!u->ready[j])u->ready[j]=f+15;
-   if(f>=u->ready[j]){uint32_t child=sg_make_drone(p,j);if(child){u->children[j]=child;u->child_uid[j]=MEM32(child+0x10);u->ready[j]=0;fprintf(stderr,"[drones] %s slot %d launched drone %08X\n",id,j+1,child);}else u->ready[j]=f+30;}
+   if(tank&&u->last_launch&&f<u->last_launch+45)continue; /* Bastion: one drone at a time */
+   if(f>=u->ready[j]){uint32_t child=sg_make_drone(p,j);if(child){u->children[j]=child;u->child_uid[j]=MEM32(child+0x10);u->ready[j]=0;u->last_launch=f;
+     SGUnit*cu=sg_state(child);if(cu){cu->ord_target=MEM32(child+0x2B4);cu->ord_dest=MEM32(child+0x5A4);cu->mode=building?1:0;cu->tethered=tank;}
+     fprintf(stderr,"[drones] %s slot %d launched drone %08X\n",id,j+1,child);}else u->ready[j]=f+30;}
   }
  }
 }
@@ -234,7 +290,10 @@ uint32_t sg_credit_source(uint32_t killer){
 }
 int sg_weapon_mode(uint32_t p){
  if(!sg_on()||!p||MEM32(p)!=0x7F5C70||strcmp(sg_id(p,0),"SGPDRONE"))return -1;
- SGUnit*u=sg_state(p);return u&&u->suicide?1:0;
+ SGUnit*u=sg_state(p);if(!u)return 0;
+ /* Ctrl held over a target with a selected drone: show/use the dive weapon. */
+ if(sg_ctrl_down&&MEM8(p+0x83)&&MEM32(p+0x21C)==MEM32(0xA83D4C))return 1;
+ return (u->mode||u->dive)?1:0;
 }
 
 /* v09: Singularity research is two native superweapon cards (shield tab) with
@@ -485,6 +544,12 @@ void sg_tick(void) {
         if(f%450==0 && (s->colossus || s->nodes))fprintf(stderr,"[singularity] house=%08X nodes=%d colossus=%d powered=%d research=%u ticks\n",h,s->nodes,s->colossus,powered,s->progress);
     }
     sg_effects(f,hn);
+    /* v10: while a house's Singularity is active, all its units are elite (3 stars). */
+    for(int i=0;i<sg_vec_count(0xA8EC78);i++){
+        uint32_t p=sg_vec_at(0xA8EC78,i),vt=MEM32(p);if(!sg_alive(p)||(vt!=0x7F5C70&&vt!=0x7EB058&&vt!=0x7E22A4))continue;
+        SGHouse*h=sg_house(MEM32(p+0x21C));if(!sg_active(h))continue;
+        if(sg_rank(p)<2.f){float e=2.f;memcpy(hle_ptr(p+0x150),&e,4);}
+    }
     sg_control_tick(f);
     sg_ai_tick(f);
 #ifdef SG_V07_LAB
@@ -506,7 +571,7 @@ void sg_tick(void) {
             if(targethouse==sourcehouse || (targetindex>=0&&targetindex<32&&(MEM32(sourcehouse+0x5788)&(1u<<targetindex))))continue;
             uint32_t vt=MEM32(p);if(vt!=0x007F5C70&&vt!=0x007EB058&&vt!=0x007E22A4)continue;
             const char*pid=sg_id(p,0);if(!sg_drone(pid)&&strcmp(pid,"SGLINK")&&strcmp(pid,"SGOP"))continue;
-            if(sg_dist(b,p)>(us?6:3))continue;SGUnit*u=sg_state(p);if(!u||f<u->immune)continue;
+            if(sg_dist(b,p)>(us?6:3))continue;SGUnit*u=sg_state(p);if(!u||f<u->immune||u->tethered)continue; /* fibre-optic: no radio link to jam */
             u->until=f+90;u->immune=f+240;hit++;
         }
         if(hit){em->pulse=f+(us?900:675);fprintf(stderr,"[singularity] %s EMP suppressed %d targets for 90 simulation frames\n",id,hit);}
@@ -540,7 +605,6 @@ static void sg_bastion_toggle(uint32_t p){
  sg_ai_order(p,0,5); /* Guard: stops it, and cancels the unload */
  fprintf(stderr,"[drones] Bastion %08X %s\n",p,on?"DEPLOYED: 10 drones":"MOBILE: 2 drones");
 }
-static uint32_t sg_dkey_frame;
 static void sg_bastion_orders(void){
  uint32_t f=MEM32(RA2_GAME_FRAME_VA),player=MEM32(0xA83D4C);
  int fallback=sg_dkey_frame&&f>=sg_dkey_frame+4;
@@ -552,9 +616,20 @@ static void sg_bastion_orders(void){
   /* D pressed but the game issued no deploy order: toggle selected Bastions directly. */
   if(fallback&&MEM8(p+0x83)&&MEM32(p+0x21C)==player&&u->pulse<sg_dkey_frame){sg_bastion_toggle(p);u->pulse=f;}
  }
+ /* v10: D on selected operator drones switches gun / suicide stance. */
+ if(fallback){int n=0,mode=0;
+  for(int i=0;i<sg_vec_count(0xA8EC78);i++){
+   uint32_t p=sg_vec_at(0xA8EC78,i);
+   if(MEM32(p)!=0x7F5C70||!sg_alive(p)||!MEM8(p+0x83)||MEM32(p+0x21C)!=player||strcmp(sg_id(p,0),"SGPDRONE"))continue;
+   SGUnit*u=sg_state(p);if(!u||u->dkey_seen==sg_dkey_frame)continue;
+   u->dkey_seen=sg_dkey_frame;u->mode=!u->mode;mode=u->mode;n++;
+  }
+  if(n){sg_message(mode?"Drone stance: SUICIDE - dives on vehicles it finds.":"Drone stance: GUN - machine gun, returns after a dive.");fprintf(stderr,"[drones] %d drones stance %s\n",n,mode?"SUICIDE":"GUN");}
+ }
  if(fallback)sg_dkey_frame=0;
 }
 int sg_tech_key(int scan,int down){
  if(scan==7&&down&&sg_on())sg_dkey_frame=MEM32(RA2_GAME_FRAME_VA); /* D; never swallowed */
+ if(scan==224||scan==228)sg_ctrl_down=down; /* left/right Ctrl: force-fire = drone dive */
  return 0;
 }

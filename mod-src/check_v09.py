@@ -8,9 +8,9 @@ for profile in ['Singularity', 'Singularity - Adaptive']:
     mod = ROOT / 'outputs/redalert2-recomp/mods/yr' / profile
     r = readini(mod / 'rulesmd.ini'); a = readini(mod / 'artmd.ini')
     # Operators: runtime-owned, non-selectable drones; no engine spawners on carriers.
-    for unit, rng in [('SGLINK', 7), ('SGOP', 6), ('SGTANK', 8)]:
+    for unit, rng in [('SGLINK', 10), ('SGOP', 8), ('SGTANK', 10)]:
         assert 'Spawns' not in r[unit] and float(r[r[unit]['Primary']]['Range']) == rng, unit
-    assert r['SGPDRONE']['Selectable'] == 'no' and r['SGDRONEBOOM'].get('Suicide', 'no') == 'no'
+    assert r['SGPDRONE']['Selectable'] == 'yes' and r['SGDRONEBOOM'].get('Suicide', 'no') == 'no'
     assert r['SGTANK']['Passengers'] == '2' and r['SGTANK']['OpenTopped'] == 'yes'
     # No building spawners (engine spawn-manager crash).
     for key, d in r.items():
