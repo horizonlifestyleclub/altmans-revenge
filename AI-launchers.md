@@ -26,3 +26,10 @@ The test has private settings and its own executable location under `adaptive-pl
 Custom drone and AI state still does not support reliable save/load; use a fresh test match. Quit the test normally when finished. Starting the test does not close any existing match; finish or exit your other match first if you only want one game window.
 
 Prepared locally. No commit, push, pull request or deployment. The test is available on demand and is not left running automatically.
+
+## Brutal Plus + Qwen commander (branch v10/llm)
+
+- **Brutal Plus Qwen.command**: you vs Brutal Plus, with its strategy steered by a local Qwen model.
+- **Watch Qwen vs Classic.command**: the Qwen-steered Brutal Plus vs the original Brutal AI; you watch.
+- Needs Ollama and the model (`brew install ollama`, `ollama pull qwen3:4b`). The launchers start Ollama if it isn't running.
+- Details, files and the learning playbook: `llm-bridge/README.md`.

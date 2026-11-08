@@ -84,3 +84,9 @@ HANDOFF-singularity.md
 adaptive-playtest/
 unit-showcase/
 brutalplus-playtest/
+
+# LLM commander: per-match files (the playbook itself is tracked)
+llm-bridge/run/
+llm-bridge/memory/matches/
+llm-bridge/memory/last-match.md
+llm-bridge/__pycache__/

@@ -43,6 +43,7 @@ static void sg_bp_move(uint32_t p,int x,int y){sg_bp_issuing++;sg_ai_move(p,x,y)
  * a time; for Brutal Plus houses that drip-feed is refused here. */
 static int sg_bp_refuse(uint32_t p,uint32_t target,int mission){return mission==15&&!target&&!sg_bp_issuing&&sg_bp_house(MEM32(p+0x21C));}
 static int sg_bp_value(SGBPBrain*b,int*count){int v=0,n=0;for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(sg_alive(p)&&MEM32(p+0x21C)==b->house){v+=sg_bp_cost(sg_ai_id(p));n++;}}if(count)*count=n;return v;}
+#include "adaptive_ai_llm.h"
 /* Target: the enemy house's Singularity core if it has one, otherwise its
  * nearest production or economy building to our rally point. */
 static uint32_t sg_bp_pick_target(SGBPBrain*b){
@@ -51,9 +52,11 @@ static uint32_t sg_bp_pick_target(SGBPBrain*b){
  for(int i=0;i<sg_vec_count(0xA8EB40);i++){
   uint32_t q=sg_vec_at(0xA8EB40,i);if(!sg_alive(q)||!sg_enemy(b->house,MEM32(q+0x21C)))continue;
   const char*id=sg_ai_id(q);int rank=-1;for(int k=0;prio[k];k++)if(!strncmp(id,prio[k],strlen(prio[k]))){rank=k<2?0:k<5?1:k<8?2:3;break;}
+  rank=sg_llm_rank(b->house,id,rank); /* LLM commander's target choice, if any */
   double dx=(int32_t)MEM32(q+0x9C)-b->rx,dy=(int32_t)MEM32(q+0xA0)-b->ry,s=sqrt(dx*dx+dy*dy)/256.+(rank<0?400:rank*25);
   if(s<bs){bs=s;best=q;}
  }
+ if(sg_llm_hunt_army(b->house))best=0;
  if(!best)for(int i=0;i<sg_vec_count(0xA8EC78);i++){ /* no buildings yet: hunt its units (e.g. an MCV) */
   uint32_t q=sg_vec_at(0xA8EC78,i);if(!sg_alive(q)||!sg_bp_is_foot(q)||!sg_enemy(b->house,MEM32(q+0x21C)))continue;
   double dx=(int32_t)MEM32(q+0x9C)-b->rx,dy=(int32_t)MEM32(q+0xA0)-b->ry,s=sqrt(dx*dx+dy*dy);if(s<bs){bs=s;best=q;}
@@ -168,6 +171,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
   }
   /* Army size needed grows with time; easier settings launch smaller waves. */
   int need=(4000+600*minutes)*(4-difficulty)/4;if(need>20000)need=20000;
+  need=need*sg_llm_need_pct(h)/100; /* attack/harass launch sooner, defend/expand hold back */
   int waited=f-b->state_since>3600&&value>=need/2&&n>=6;
   if((value>=need&&n>=8)||n>=40||waited){
    b->wn=0;for(int i=0;i<sg_vec_count(0xA8EC78)&&b->wn<96;i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(sg_bp_free(p,h)&&MEM32(p+0x6C)*10>=sg_bp_strength(sg_ai_id(p))*3)b->wave[b->wn++]=p;}
@@ -175,7 +179,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
    double dx=b->sx-tx,dy=b->sy-ty,len=sqrt(dx*dx+dy*dy);if(len<1)len=1;
    b->rx=tx+(int)(dx/len*6*256);b->ry=ty+(int)(dy/len*6*256);
    for(int i=0;i<b->wn;i++){int j=((int)(MEM32(b->wave[i]+0x10)%5)-2)*256;if(b->wave[i])sg_bp_move(b->wave[i],b->rx+j,b->ry+j);}
-   b->launch_value=value;b->launch_frame=f;b->state=SG_BP_MARCH;b->state_since=f;b->waves++;
+   sg_llm_wave(h,value,0,0);b->launch_value=value;b->launch_frame=f;b->state=SG_BP_MARCH;b->state_since=f;b->waves++;
    fprintf(stderr,"[brutalplus] house=%d WAVE %d launched: %d units worth $%d (needed $%d) target=%s\n",MEM32(h+0x30),b->waves,b->wn,value,need,sg_ai_id(b->target));
   }
   return;
@@ -195,6 +199,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
  /* Pull back as a group instead of feeding units in one at a time. */
  if(value*10<b->launch_value*3||f-b->state_since>6000||!alive){
   for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(!sg_alive(p))continue;if(!strcmp(sg_ai_id(p),"SGTANK")){SGUnit*u=sg_state(p);if(u)u->nest_active=0;}sg_bp_move(p,b->sx,b->sy);}
+  sg_llm_wave(h,0,alive,value);
   fprintf(stderr,"[brutalplus] house=%d wave %d over: %d units ($%d of $%d) regrouping\n",MEM32(h+0x30),b->waves,alive,value,b->launch_value);
   b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;b->target=0;
  }
@@ -259,6 +264,12 @@ static const char*sg_bp_pick_unit(uint32_t h,int infantry,unsigned turn){
  int side=MEM32(h+0x1E8),air,inf,armor,defs;sg_bp_enemy_mix(h,&air,&inf,&armor,&defs);
  const char*c[8];int n=0;
 #define BP_TRY(id) do{if(n<8&&sg_bp_eligible(h,id))c[n++]=id;}while(0)
+ /* LLM commander's build focus: skip the other category half the time and
+    put its preferred units at the front of the list. */
+ if(sg_llm_is(h,"build","armour")&&infantry&&turn%2)return NULL;
+ if(sg_llm_is(h,"build","infantry")&&!infantry&&turn%2)return NULL;
+ if(sg_llm_is(h,"build","antiair")){if(side==1){BP_TRY(infantry?"FLAKT":"HTK");BP_TRY(infantry?"FLAKT":"HTK");}else if(side==2){if(!infantry){BP_TRY("YTNK");BP_TRY("YTNK");}}else{BP_TRY(infantry?"GGI":"FV");BP_TRY(infantry?"GGI":"FV");}}
+ if(sg_llm_is(h,"build","artillery")&&!infantry){if(side==1){BP_TRY("V3");BP_TRY("V3");}else if(side!=2){BP_TRY("SREF");BP_TRY("SREF");}}
  if(!infantry){
   if(side==1){BP_TRY("HTNK");BP_TRY("HTNK");if(air>2)BP_TRY("HTK");if(inf>armor+4)BP_TRY("HTK");if(defs>4)BP_TRY("V3");BP_TRY("APOC");BP_TRY("SGLOCUST");}
   else if(side==2){BP_TRY("LTNK");BP_TRY("YTNK");if(air>2)BP_TRY("YTNK");BP_TRY("LTNK");}
@@ -335,7 +346,9 @@ static void sg_bp_tick(uint32_t f){
   int threat=sg_bp_defend(b);
   /* A big attack on the base recalls a wave that has not engaged yet. */
   if((b->state==SG_BP_MARCH&&threat>3000)||(b->state==SG_BP_ASSAULT&&threat>6000)){for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i]))sg_bp_move(b->wave[i],b->sx,b->sy);b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;fprintf(stderr,"[brutalplus] house=%d wave recalled to defend ($%d threat)\n",MEM32(h+0x30),threat);}
+  if(sg_llm_is(h,"stance","defend")&&b->state==SG_BP_MARCH){for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i]))sg_bp_move(b->wave[i],b->sx,b->sy);b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;fprintf(stderr,"[llm] wave called home (defend stance)\n");}
   sg_bp_army(b,f,difficulty);
+  sg_llm_tick(b,f,threat);
   if(f%900<45){int n=0,v=0,teamed=0;char plan[32]="-",enemies[64]="";int pi=(int32_t)MEM32(h+0x564C);if(pi>=0&&pi<sg_vec_count(0xA83C68))snprintf(plan,sizeof plan,"%s",(const char*)hle_ptr(sg_vec_at(0xA83C68,pi)+0x24));
    for(int i=0;i<sg_vec_count(0xA80228);i++){uint32_t o=sg_vec_at(0xA80228,i);if(sg_enemy(h,o)&&MEM32(o+0x34)>0x10000&&!MEM8(MEM32(o+0x34)+0x1A6)){size_t l=strlen(enemies);snprintf(enemies+l,sizeof enemies-l,"%d,",MEM32(o+0x30));}}for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_foot(p))continue;if(sg_bp_free(p,h)){n++;v+=sg_bp_cost(sg_ai_id(p));}else if(MEM32(p+SG_BP_TEAM)>=0x10000)teamed++;}
    fprintf(stderr,"[brutalplus] house=%d status min=%u state=%d free=%d ($%d) in-teams=%d wave=%d credits=%d target=%s plan=%s enemies=%s\n",MEM32(h+0x30),f/900,b->state,n,v,teamed,b->wn,MEM32(h+0x30C),b->target?sg_ai_id(b->target):"-",plan,enemies);}
