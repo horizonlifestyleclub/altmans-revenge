@@ -99,3 +99,4 @@ llm-bridge/memory/opponent.md
 llm-bridge/memory/strategy-log.md
 llm-bridge/memory/strategies/v*.md
 !llm-bridge/memory/strategies/v001.md
+dist/

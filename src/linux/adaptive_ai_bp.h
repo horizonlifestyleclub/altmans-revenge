@@ -31,7 +31,7 @@ static int sg_bp_is_foot(uint32_t p){uint32_t vt=MEM32(p);return vt==0x7F5C70||v
  * (scout / raid / defence) team. */
 static int sg_llm_reserved(uint32_t p);
 /* Warships (not transports): the fleet is run separately, never in a land wave. */
-static int sg_bp_is_ship(const char*id){static const char*s[]={"DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB","LCRF",NULL};for(int i=0;s[i];i++)if(!strcmp(id,s[i]))return 1;return 0;}
+static int sg_bp_is_ship(const char*id){static const char*s[]={"DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB","LCRF","SGDOLPH","SGSEADRONE",NULL};for(int i=0;s[i];i++)if(!strcmp(id,s[i]))return 1;return 0;}
 static int sg_bp_eligible(uint32_t h,const char*id);
 static int sg_bp_free(uint32_t p,uint32_t h){
  if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_foot(p)||sg_llm_reserved(p))return 0; /* scout/raiders belong to the commander */

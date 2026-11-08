@@ -295,6 +295,29 @@ def game_alive():
         return False
 
 
+def status(text):
+    """One line the game shows if Qwen never answers (the Qwen requirement)."""
+    try:
+        (Path(ARGS.dir) / 'status.txt').write_text(text + '\n')
+    except OSError:
+        pass
+
+
+def ensure_model():
+    try:
+        tags = json.loads(urllib.request.urlopen(OLLAMA + '/api/tags', timeout=5).read())
+    except Exception:
+        status('Ollama is not running')
+        return False
+    names = {m.get('name', '') for m in tags.get('models', [])}
+    if ARGS.model not in names and ARGS.model + ':latest' not in names:
+        print('[commander] model %s is missing: ollama pull %s' % (ARGS.model, ARGS.model), flush=True)
+        status('model %s is not downloaded' % ARGS.model)
+        return False
+    status('ok')
+    return True
+
+
 def ensure_ollama():
     """Start Ollama if it is not running (for games started from the menu)."""
     try:
@@ -302,9 +325,10 @@ def ensure_ollama():
         return
     except Exception:
         pass
-    exe = shutil.which('ollama') or next((p for p in ('/opt/homebrew/bin/ollama', '/usr/local/bin/ollama') if os.path.exists(p)), None)
+    exe = shutil.which('ollama') or next((p for p in ('/opt/homebrew/bin/ollama', '/usr/local/bin/ollama', os.path.expandvars(r'%LOCALAPPDATA%\Programs\Ollama\ollama.exe')) if os.path.exists(p)), None)
     if not exe:
         print('[commander] Ollama is not installed; the AI plays as Brutal Plus without Qwen', flush=True)
+        status('Ollama is not installed')
         return
     import subprocess
     subprocess.Popen([exe, 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -332,6 +356,7 @@ def main():
         pass
     pidfile.write_text(str(os.getpid()))
     ensure_ollama()
+    ensure_model()
     if not (MEMORY / 'strategy.md').exists() and (MEMORY / 'strategies/v001.md').exists():
         shutil.copyfile(MEMORY / 'strategies/v001.md', MEMORY / 'strategy.md')  # first run: the starting strategy
     ledger = run / 'ledger.json'

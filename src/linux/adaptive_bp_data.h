@@ -488,6 +488,7 @@ static const struct {const char*id;int cost,strength;} sg_bp_costs[]={
 {"SGBATT",500,450},
 {"SGCOLO",7500,1500},
 {"SGCYBER",1800,300},
+{"SGDOLPH",400,150},
 {"SGEMPT",1400,450},
 {"SGFACT",500,800},
 {"SGFACTDRONE",0,60},
@@ -514,6 +515,7 @@ static const struct {const char*id;int cost,strength;} sg_bp_costs[]={
 {"SGPDRONE",150,70},
 {"SGRAVEN",2200,450},
 {"SGSCOUT",0,45},
+{"SGSEADRONE",350,150},
 {"SGSERAPH",3000,600},
 {"SGSHAHED",300,100},
 {"SGSTARLINK",2500,600},
@@ -646,5 +648,7 @@ static const struct {const char*id,*owners,*required,*forbidden;const char*prere
 {"HYD","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NARADR",NULL,NULL,NULL,NULL,NULL,NULL}},
 {"DRED","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
 {"SQD","Russians,Confederation,Africans,Arabs","","",{"NAYARD","NATECH",NULL,NULL,NULL,NULL,NULL,NULL}},
-{"BSUB","YuriCountry","","",{"YAYARD","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}}
+{"BSUB","YuriCountry","","",{"YAYARD","GAAIRC,NARADR,AMRADR,NAPSIS",NULL,NULL,NULL,NULL,NULL,NULL}},
+{"SGDOLPH","British,French,Germans,Americans,Alliance","","",{"GAYARD",NULL,NULL,NULL,NULL,NULL,NULL,NULL}},
+{"SGSEADRONE","Russians,Confederation,Africans,Arabs","","",{"NAYARD",NULL,NULL,NULL,NULL,NULL,NULL,NULL}}
 };

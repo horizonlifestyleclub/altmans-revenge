@@ -59,10 +59,11 @@ static int sg_hive(const char*id){return !strcmp(id,"SGTANKC")||!strcmp(id,"SGTA
 /* v10: player-controllable drones: operator drones, Bastion fibre drones, factory strike drones. */
 static int sg_opdrone(const char*id){return !strcmp(id,"SGPDRONE")||!strcmp(id,"SGFIBRE")||!strcmp(id,"SGFIBREC")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
 /* One-way attack drones: removed (with a blast) the frame after they fire. */
-static int sg_kamikaze(const char*id){return !strcmp(id,"SGSHAHED")||!strcmp(id,"SGNEEDLE");}
+/* v11: the Kamikaze Dolphin and the Sea Drone are one-way naval units. */
+static int sg_kamikaze(const char*id){return !strcmp(id,"SGSHAHED")||!strcmp(id,"SGNEEDLE")||!strcmp(id,"SGDOLPH")||!strcmp(id,"SGSEADRONE");}
 /* EMP-proof: cable-guided or autonomous (no radio link to jam). */
 static int sg_emp_proof(const char*id){return !strcmp(id,"SGFIBRE")||!strcmp(id,"SGFIBREC")||!strcmp(id,"SGFPV")||!strcmp(id,"SGFPVC");}
-static int sg_drone(const char*id){return sg_opdrone(id)||sg_bastion(id)||!strcmp(id,"SGSCOUT")||!strcmp(id,"SGSERAPH")||!strcmp(id,"SGNEEDLE")||!strcmp(id,"SGLOCUST")||!strcmp(id,"SGINT")||!strcmp(id,"SGNDRONE")||!strcmp(id,"SGWDRONE")||!strcmp(id,"SGHOUND")||!strcmp(id,"SGGUARD")||!strcmp(id,"SGKAMI")||!strcmp(id,"SGFACTDRONE");}
+static int sg_drone(const char*id){return sg_opdrone(id)||sg_bastion(id)||!strcmp(id,"SGSCOUT")||!strcmp(id,"SGSERAPH")||!strcmp(id,"SGNEEDLE")||!strcmp(id,"SGLOCUST")||!strcmp(id,"SGINT")||!strcmp(id,"SGNDRONE")||!strcmp(id,"SGWDRONE")||!strcmp(id,"SGHOUND")||!strcmp(id,"SGGUARD")||!strcmp(id,"SGKAMI")||!strcmp(id,"SGFACTDRONE")||!strcmp(id,"SGSEADRONE");}
 double sg_costfactor(uint32_t h,uint32_t t){
     if(!sg_on())return 1;SGHouse*s=sg_house(h);if(!s||!s->powered||!t)return 1;
     const char*id=(const char*)hle_ptr(t+0x24);
