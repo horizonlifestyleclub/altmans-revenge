@@ -13,6 +13,8 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*16*/{"E1",0xA8E348,66,57,1},{"E1",0xA8E348,67,57,1},{"E1",0xA8E348,68,57,1},{"E1",0xA8E348,66,58,1},
  /*20*/{"HTNK",0xA83CE0,70,62,1},
  {"NACNST",0xA83C68,75,35,1},{"NAPOWR",0xA83C68,86,35,1},
+ /*23*/{"JUMPJET",0xA8E348,63,58,0},
+ /*24*/{"MTNK",0xA83CE0,61,59,1},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -62,6 +64,11 @@ static void sg_lab_tick(uint32_t f){
   lab_view(58,64);
   return;
  }
+
+ { static int probed;if(!probed&&f>=100){probed=1;
+   const char*ids[]={"SGPDRONE","SGSWARM","SGSWARMC","SGTANK","SGTANKD"};
+   for(int k=0;k<5;k++){uint32_t t=sg_find_unit_type(ids[k]);fprintf(stderr,"[v10] voxel %s type=%08X MainVoxel=%08X (%s)\n",ids[k],t,t?MEM32(t+0xB0):0,t&&MEM32(t+0xB0)?"VISIBLE":"MISSING");}
+ }}
  uint32_t link=lab_ptr[13],op=lab_ptr[14],bas=lab_ptr[15],tank=lab_ptr[20];
  /* 1. LINK walks away; its drone must follow (distance stays small). */
  if(f==300&&sg_alive(link)){sg_ai_move(link,46*256+128,74*256+128);fprintf(stderr,"[v10] LINK ordered to move\n");}
@@ -72,7 +79,39 @@ static void sg_lab_tick(uint32_t f){
  if(lost_at&&f>lost_at&&f%15==0){uint32_t d;if(lab_drones(link,&d)){fprintf(stderr,"[v10] LINK drone back after %.1f s\n",(f-lost_at)/15.);lost_at=0;}}
  /* 3. Bastion deploy: count drones (max 5, one at a time). */
  if(f==200&&sg_alive(bas)){sg_ai_order(bas,0,16);fprintf(stderr,"[v10] Bastion deploy order\n");}
- if(f%45==0&&f>=200&&f<=1400&&sg_alive(bas))fprintf(stderr,"[v10] f=%u bastion deployed=%d drones=%d\n",f,MEM8(bas+0x6E0),lab_drones(bas,NULL));
+ if(f%15==0&&f>=200&&f<=700&&sg_alive(bas))fprintf(stderr,"[v10] f=%u bastion deployed=%d type=%s mission=%d drones=%d\n",f,MEM8(bas+0x6E0),sg_id(bas,0),(int)MEM32(bas+0xAC),lab_drones(bas,NULL));
+ /* 3b. Attack order on the selected Bastion sends all of its drones. */
+ if(f==600&&sg_alive(bas)&&lab_ptr[24]&&sg_alive(lab_ptr[24])){tank=lab_ptr[24];MEM8(bas+0x83)=1;sg_ai_order(bas,tank,1);fprintf(stderr,"[v10] Bastion selected + attack order on a tank %.1f cells away\n",sg_dist(bas,tank));}
+ if(f==630&&sg_alive(bas)){tank=lab_ptr[24];MEM8(bas+0x83)=0;SGUnit*u=sg_state(bas);int n=0,on=0;for(int j=0;u&&j<10;j++){uint32_t d=u->children[j];if(d&&MEM32(d+0x10)==u->child_uid[j]&&sg_alive(d)){n++;if(MEM32(d+0x2B4)==tank)on++;}}
+  fprintf(stderr,"[v10] Bastion attack-all: %d of %d drones on the tank; bastion mission=%d deployed=%d\n",on,n,(int)MEM32(bas+0xAC),MEM8(bas+0x6E0));}
+ /* 7. Rifle infantry must not shoot our Rocketeer (only drones). */
+ if(f%90==0&&f>=200&&f<=1200&&lab_ptr[23]&&sg_alive(lab_ptr[23])){int on=0;for(int i=16;i<=19;i++){uint32_t e=lab_ptr[i];if(e&&sg_alive(e)&&MEM32(e+0x2B4)==lab_ptr[23])on++;}
+  fprintf(stderr,"[v10] f=%u rocketeer hp=%d height=%d enemy GIs targeting it=%d\n",f,(int)MEM32(lab_ptr[23]+0x6C),(int)MEM32(lab_ptr[23]+0xA4)-sg_floor(MEM32(lab_ptr[23]+0x9C),MEM32(lab_ptr[23]+0xA0)),on);}
+ /* 8. Right-click dive: put the mouse over an enemy GI, right-click with the LINK drone selected. */
+ static uint32_t rc_drone;static int32_t rc_last[2];
+ if(f==880)lab_view(63,60);
+ if(f==898&&sg_alive(op)){uint32_t d;if(lab_drones(op,&d)&&d){MEM8(d+0x83)=1;rc_drone=d;}}
+ if(f==900&&rc_drone&&sg_alive(rc_drone)){
+  uint32_t e=0;for(int i=16;i<=19&&!e;i++)if(lab_ptr[i]&&sg_alive(lab_ptr[i]))e=lab_ptr[i];
+  uint32_t mouse=MEM32(0x887640);int W=(int)MEM32(0xB0CE30),H=(int)MEM32(0xB0CE34)+(int)MEM32(0xB0CE2C),bx=0,by=0;double bd=1e9;
+  int32_t*m=hle_heap_alloc(20,1);
+  for(int y=0;e&&y<H;y+=8)for(int x=0;x<W;x+=8){m[0]=x;m[1]=y;m[2]=m[3]=m[4]=0;uint32_t args[2]={hle_va(m+2),hle_va(m)},sv=g_ecx;g_ecx=MEM32(0x887324);hle_call_guest(0x6D2280,2,args);g_ecx=sv;
+   double dx=(m[2]-(int32_t)MEM32(e+0x9C))/256.,dy=(m[3]-(int32_t)MEM32(e+0xA0))/256.,dd=dx*dx+dy*dy;if((m[2]||m[3])&&dd<bd){bd=dd;bx=x;by=y;}}
+  hle_heap_free(m);
+  fprintf(stderr,"[v10] viewport %dx%d; enemy GI %08X at (%d,%d) is under screen point (%d,%d), error %.2f cells\n",W,H,e,e?(int32_t)MEM32(e+0x9C)/256:0,e?(int32_t)MEM32(e+0xA0)/256:0,bx,by,sqrt(bd));
+  if(e&&mouse){MEM32(mouse+0x1C)=bx;MEM32(mouse+0x20)=by;sg_rclick=1;fprintf(stderr,"[v10] simulated right-click\n");}
+  rc_last[0]=(int32_t)MEM32(rc_drone+0x9C);rc_last[1]=(int32_t)MEM32(rc_drone+0xA0);
+ }
+ if(rc_drone&&f>900&&f<=1150&&f%5==0){
+  if(sg_alive(rc_drone)){SGUnit*du=sg_state(rc_drone);double sp;memcpy(&sp,hle_ptr(rc_drone+0x580),8);int32_t x=(int32_t)MEM32(rc_drone+0x9C),y=(int32_t)MEM32(rc_drone+0xA0);
+   fprintf(stderr,"[v10] f=%u dive drone dive=%d target=%08X jjspeed=%d moved %.2f cells in 5 frames; to target %.2f mission %d wpn %d z %d\n",f,du?du->dive:-1,MEM32(rc_drone+0x2B4),(int)MEM32(MEM32(rc_drone+0x674)+0x1C),sqrt((double)(x-rc_last[0])*(x-rc_last[0])+(double)(y-rc_last[1])*(y-rc_last[1]))/256.,sg_targetable(MEM32(rc_drone+0x2B4))?sg_dist(rc_drone,MEM32(rc_drone+0x2B4)):-1,(int)MEM32(rc_drone+0xAC),sg_weapon_mode(rc_drone),(int)MEM32(rc_drone+0xA4)-sg_floor(MEM32(rc_drone+0x9C),MEM32(rc_drone+0xA0)));rc_last[0]=x;rc_last[1]=y;}
+  else {fprintf(stderr,"[v10] f=%u dive drone gone (exploded)\n",f);rc_drone=0;}
+ }
+ /* reference: LINK drone following speed */
+ static int32_t ref_last[2];
+ if(f>=310&&f<=400&&f%5==0&&sg_alive(link)){uint32_t d;if(lab_drones(link,&d)&&d){int32_t x=(int32_t)MEM32(d+0x9C),y=(int32_t)MEM32(d+0xA0);double sp;memcpy(&sp,hle_ptr(d+0x580),8);
+  if(f>310)fprintf(stderr,"[v10] f=%u follow drone speedmult=%.2f moved %.2f cells in 5 frames\n",f,sp,sqrt((double)(x-ref_last[0])*(x-ref_last[0])+(double)(y-ref_last[1])*(y-ref_last[1]))/256.);ref_last[0]=x;ref_last[1]=y;}}
+
  /* 4. Drone health vs enemy rifles; 5. NEST drone in suicide stance dives on the tank. */
  if(f%90==0&&f>=300){int hp=0,n=0;for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(sg_alive(p)&&MEM32(p+0x21C)==houses[0]&&!strcmp(sg_id(p,0),"SGPDRONE")){hp+=(int)MEM32(p+0x6C);n++;}}
   int e1t=0;for(int i=16;i<=19;i++){uint32_t e=lab_ptr[i];if(e&&sg_alive(e)){uint32_t t=MEM32(e+0x2B4);if(t>0x10000&&t<0xF0000000&&MEM32(t)==0x7F5C70&&!strcmp(sg_id(t,0),"SGPDRONE"))e1t++;}}

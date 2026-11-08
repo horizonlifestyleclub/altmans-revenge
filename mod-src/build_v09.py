@@ -8,6 +8,7 @@ ROOT = __import__('sgpaths').ROOT
 repo = ROOT / 'outputs/redalert2-recomp'
 build = repo / 'build-macos'
 subprocess.run([sys.executable, str(ROOT / 'work/singularity/patch_v09_native.py')], check=True)
+subprocess.run([sys.executable, str(ROOT / 'work/singularity/patch_v10_native.py')], check=True)
 cmds = [__import__('sgpaths').fix_cmd(c) for c in (ROOT / 'work/singularity/build-commands.txt').read_text().splitlines()]
 changed = sys.argv[1:] or ['/src/linux/main.c', '/src/recomp/gen/recomp_0005.c']
 for name in changed:

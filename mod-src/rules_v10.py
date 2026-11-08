@@ -17,9 +17,15 @@ r['SGPDRONE'].update(Name='Operator drone',Selectable='yes',IsSelectableCombatan
     VoiceSelect='SGDroneSelect',VoiceMove='SGDroneMove',VoiceAttack='SGDroneAttack',
     VoiceSpecialAttack='SGDroneDive',VoiceSecondaryWeaponAttack='SGDroneDive',VoiceFeedback='')
 labels['Name:SGPDRONE']='Operator drone (D: gun / suicide)'
-# Own, larger quadcopter model (drone_v10.py), wired like the Drone Swarm.
-r['SGPDRONE']['Image']='SGPDRONEART'
-a['SGPDRONEART']={'Image':'sgpdrone','Voxel':'yes','Remapable':'yes','Cameo':'sglnicon','AltCameo':'sglnicon','PrimaryFireFLH':'0,0,0'}
+# Own, larger quadcopter model (drone_v10.py). The engine loads a voxel by the
+# art SECTION name (Image=SGPDRONE -> sgpdrone.vxl); an art section with a
+# different name plus its own Image= line loads nothing, which made both the
+# operator drone and the v09 Drone Swarm invisible.
+r['SGPDRONE']['Image']='SGPDRONE'
+a['SGPDRONE']={'Voxel':'yes','Remapable':'yes','Cameo':'sglnicon','AltCameo':'sglnicon','PrimaryFireFLH':'0,0,0'}
+a.pop('SGSWARMART',None)
+r['SGSWARM']['Image']='SGSWARM';r['SGSWARMC']['Image']='SGSWARM'
+a['SGSWARM']={'Voxel':'yes','Remapable':'yes','Cameo':'sgswicon','AltCameo':'sgswicon','PrimaryFireFLH':'0,0,0'}
 
 # ---- Infantry can shoot drones (and, weakly, other aircraft) ----
 # Small-arms projectiles get an anti-air twin; rifles and pistols use it.
@@ -34,7 +40,7 @@ for _inf in r['InfantryTypes'].values():
 for _w in sorted(_aa_weapons):
     r[_w]['Projectile']='InvisibleLowAA'
 
-# ---- LINK operator: Engineer voice + new radio lines; long-range link ----
+# ---- LINK operator: its own radio voice (no Engineer clips); long-range link ----
 import json as _json, subprocess as _sp, sys as _sys
 _vman=ROOT/'outputs/singularity-build/v10/voice/manifest.json'
 if not _vman.exists():
@@ -44,16 +50,16 @@ for _group,_names in _v10.items():
     if _group not in sounds['SoundList'].values():
         sounds['SoundList'][str(max(int(k) for k in sounds['SoundList'] if k.isdigit())+1)]=_group
     sounds[_group]={'Sounds':' '.join(_names),'Control':'random','Volume':'85','Priority':'critical','Type':'global'}
-def _mix(name,eng,radio):
-    clips=sounds[eng]['Sounds'].split()+sounds[radio]['Sounds'].split()
+def _mix(name,radio):
+    clips=sounds[radio]['Sounds'].split()
     if name not in sounds['SoundList'].values():
         sounds['SoundList'][str(max(int(k) for k in sounds['SoundList'] if k.isdigit())+1)]=name
     sounds[name]={'Sounds':' '.join(clips),'Control':'random','Volume':'85'}
-_mix('SGLinkV10Select','EngAllSelect','SGLinkRadioSelect')
-_mix('SGLinkV10Move','EngAllMove','SGLinkRadioMove')
-_mix('SGLinkV10Attack','EngAllAttackCommand','SGLinkRadioAttack')
+_mix('SGLinkV10Select','SGLinkRadioSelect')
+_mix('SGLinkV10Move','SGLinkRadioMove')
+_mix('SGLinkV10Attack','SGLinkRadioAttack')
 r['SGLINK'].update(VoiceSelect='SGLinkV10Select',VoiceMove='SGLinkV10Move',VoiceAttack='SGLinkV10Attack',
-    VoiceSpecialAttack='SGLinkV10Attack',VoiceFeedback='EngAllFear',VoiceEnter='SGLinkV10Move',
+    VoiceSpecialAttack='SGLinkV10Attack',VoiceFeedback='',VoiceEnter='SGLinkV10Move',
     VoiceCapture='SGLinkV10Attack',DieSound=r['ENGINEER'].get('DieSound',''))
 # The operator's own designator reaches further so it can paint targets for the drone.
 for _key,_rng in [('SGLINK',10),('SGOP',8),('SGTANK',10)]:
@@ -62,7 +68,9 @@ for _key,_rng in [('SGLINK',10),('SGOP',8),('SGTANK',10)]:
 labels['Name:SGLINK']='LINK Drone Operator'
 
 # ---- Bastion: up to five fibre-optic drones (runtime), immune to EMP ----
-labels['Name:SGTANK']='BASTION Drone Carrier (D: deploy, 5 tethered drones)'
+labels['Name:SGTANK']='BASTION Drone Carrier (D: deploy 10 s, 5 tethered drones)'
+labels['Name:SGTANKD']='BASTION Drone Carrier (deployed - D: pack up 10 s)'
+r['SGTANKD']['UIName']='Name:SGTANKD'
 
 # ---- Singularity: a game-ending investment ----
 r['SGCOLO']['Cost']='7500'

@@ -1,4 +1,4 @@
-"""v10 voices: LINK operator radio lines (added to the original Engineer voice)
+"""v10 voices: LINK operator radio lines (the LINK operator's whole voice)
 and a short electronic chirp set for the operator drones themselves.
 Lines: macOS voice (free, local), field-radio processing from voice_v09.
 Packs into the mod audio via sfx_v09.install.
@@ -18,11 +18,11 @@ from voice_v09 import radio
 ROOT = __import__('sgpaths').ROOT
 OUT = ROOT / 'outputs/singularity-build/v10/voice'
 VOICE = 'Eddy (English (US))'
-# New LINK lines, mixed with the Engineer's own clips in rules_v10.
+# The LINK operator's own lines (its complete voice set).
 LINES = {
-    'SGLinkRadioSelect': ["Link established.", "Drone feed is up.", "Operator on the line."],
-    'SGLinkRadioMove': ["Repositioning the link.", "Keeping the bird with me."],
-    'SGLinkRadioAttack': ["Drone away.", "Target painted.", "Sending the bird in."],
+    'SGLinkRadioSelect': ["Link established.", "Drone feed is up.", "Operator on the line.", "Eyes in the sky.", "Link operator, standing by."],
+    'SGLinkRadioMove': ["Repositioning the link.", "Keeping the bird with me.", "Moving. Drone's following.", "On my way."],
+    'SGLinkRadioAttack': ["Drone away.", "Target painted.", "Sending the bird in.", "Bird's on target.", "Engaging with the drone."],
     'SGLinkRadioLost': ["Link lost.", "Bird's down, spinning up another."],
 }
 
@@ -82,7 +82,7 @@ def build():
             manifest[group].append(name)
             samples.append((name, data))
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    (OUT / 'LINES.md').write_text('# LINK operator radio lines (v10)\n\nmacOS voice %s, field-radio processing; mixed with the original Engineer clips.\n\n' % VOICE + '\n'.join(script) + '\n')
+    (OUT / 'LINES.md').write_text('# LINK operator radio lines (v10)\n\nmacOS voice %s, field-radio processing; the LINK operator complete voice set.\n\n' % VOICE + '\n'.join(script) + '\n')
     return samples
 
 

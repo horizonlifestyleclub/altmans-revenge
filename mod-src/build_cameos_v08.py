@@ -41,7 +41,7 @@ ITEMS = [
     # v09 Singularity sidebar cards (superweapon SidebarImage, no art section).
     ('node', 'sgresico', 'RESEARCH', None),
     ('colossus', 'sgsingico', 'SINGULARITY', None),
-    ('pilot', 'sgswicon', 'SWARM', 'SGSWARMART'),
+    ('pilot', 'sgswicon', 'SWARM', 'SGSWARM'),
 ]
 
 
