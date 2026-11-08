@@ -61,8 +61,23 @@ def shahed():
     return s
 
 
+def tictac():
+    """TIC TAC: smooth white capsule, no wings, no visible engines, a thin
+    team-colour stripe on top so you can tell whose it is."""
+    s = Shape(30, 30, 12)
+    z = 6
+    s.cyl((-5.5, 0, z), (5.5, 0, z), 3.4, WHITE)
+    for i, rad in enumerate((3.1, 2.6, 1.9, 1.0)):
+        for sign in (1, -1):
+            s.cyl((sign * (5.5 + i), 0, z), (sign * (6.5 + i), 0, z), rad, WHITE)
+    s.box((-4.0, -0.5, z + 3.0), (4.0, 0.5, z + 3.5), BODY)
+    s.box((-5.0, -0.4, z - 3.5), (5.0, 0.4, z - 3.1), GREY)
+    return s
+
+
 SPOOL = 58
-MODELS = {'sgpdrone': quad, 'sgfibre': fibre, 'sgshahed': shahed}
+WHITE, GREY = 34, 44
+MODELS = {'sgpdrone': quad, 'sgfibre': fibre, 'sgshahed': shahed, 'sgtictac': tictac}
 
 
 def build(install):

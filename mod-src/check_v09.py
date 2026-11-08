@@ -22,7 +22,7 @@ for profile in ['Singularity', 'Singularity - Adaptive']:
     assert r['SGBOMB']['Warhead'] == 'SGB2BOMBWH' and int(r['SGBOMB']['Damage']) >= 2000
     assert r['SGTEMPEST']['TechLevel'] == '-1'
     area = [k for k, d in r.items() if d.get('Prerequisite') == 'SGAREA' and d.get('TechLevel') != '-1']
-    assert sorted(area) == ['SGAURORA', 'SGRAVEN'], area
+    assert sorted(area) == ['SGAURORA'], area
     # Singularity cards.
     for key, minutes in [('SGRESEARCH', '6'), ('SGSINGULAR', '2')]:
         assert key in r['SuperWeaponTypes'].values() and r[key]['ShowTimer'] == 'yes' and r[key]['RechargeTime'] == minutes

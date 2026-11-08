@@ -23,3 +23,6 @@ print('v10 native patches applied')
 # units; the Cyber Warfare Unit is a mobile gap generator.
 entry('recomp_0047.c','00701190','mobile gap unit','{ extern int sg_gap_unit(uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); int g=sg_gap_unit(ecx); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); if(g){SET_LO8(eax,1);RECOMP_FLAGS_OUT();esp+=4;RECOMP_REGS_OUT();return;} }')
 print('v10 mobile gap patch applied')
+# UnitClass::ReceiveDamage: the TIC TAC takes no damage.
+entry('recomp_0050.c','00737C90','tic tac invulnerable','{ extern void sg_unit_damage(uint32_t,uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); sg_unit_damage(ecx,MEM32(esp+4)); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); }')
+print('v10 tic tac damage patch applied')

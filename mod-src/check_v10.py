@@ -48,4 +48,8 @@ assert r['SGTANKC']['Owner'] == 'Russians' and 'SGFACT' in r['SGTANKC']['Prerequ
 assert r['SGNEEDLE']['Primary'] == 'SGNEEDLEHITV' and r['SGNEEDLEHITV']['Suicide'] == 'no'
 assert r['SGSTARLINK']['GapGenerator'] == 'yes' and r['SGCYBER']['GapGenerator'] == 'yes' and r['SGCYBER']['Owner'] == 'Russians'
 assert (mod / 'sgshahed.vxl').exists() and 'Russians' not in r['SGLINK']['Owner']
+# Area 51: TIC TAC replaces the RAVEN; China Fusion Reactor.
+assert r['SGRAVEN']['TechLevel'] == '-1' and r['SGTICTAC']['Image'] == 'SGTICTAC' and r['SGTICTAC']['CanPassiveAquire'] == 'no' and 'SGAREA' in r['SGTICTAC']['Prerequisite']
+assert r['InvisibleLowAA']['AA'] == 'yes' and r['SGTICTACGUN']['Projectile'] == 'InvisibleLowAA' and (mod / 'sgtictac.vxl').exists() and (mod / 'sgtticon.shp').exists()
+assert int(r['SGFUSION']['Power']) >= 50000 and 'Russians' in r['SGFUSION']['Owner'] and r['SGFUSION']['DeathWeapon'] != 'NukePayload'
 print('PASS v10 (+China roster, Starlink/Cyber): visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')

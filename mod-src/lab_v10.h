@@ -20,6 +20,10 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*27*/{"SGSHAHED",0xA83CE0,24,70,1},
  /*28*/{"SGSTARLINK",0xA83C68,82,40,1},
  /*29*/{"SGCYBER",0xA83CE0,78,44,1},
+ /*30*/{"SGAREA",0xA83C68,40,64,0},
+ /*31*/{"SGTICTAC",0xA83CE0,58,58,0},
+ /*32*/{"FLAKT",0xA8E348,64,60,1},{"FLAKT",0xA8E348,65,60,1},
+ /*34*/{"SGFUSION",0xA83C68,88,44,1},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -145,5 +149,14 @@ static void sg_lab_tick(uint32_t f){
  if(f==1460&&sg_alive(link)){uint32_t d;MEM8(link+0x83)=0;if(lab_drones(link,&d)&&d)fprintf(stderr,"[v10] LINK drone target after hand-off: %08X (LINK target %08X)\n",MEM32(d+0x2B4),MEM32(link+0x2B4));}
  /* 10. Rank after Singularity must be 1 star; uplink unlocks strike drones. */
  if(f%300==0&&late_tank){uint32_t up=sg_find_unit_type("SGFPV");fprintf(stderr,"[v10] f=%u late tank rank=%.1f; SGFPV type=%08X\n",f,sg_rank(late_tank),up);}
+ /* 13. TIC TAC: no damage from enemy flak; idle until ordered; hunts once the
+    Singularity is ACTIVE; lost with Area 51. 14. Fusion Reactor power. */
+ {uint32_t tt=lab_ptr[31];
+  if(f%90==0&&f>=200&&f<=2400)fprintf(stderr,"[v10] f=%u tictac %s hp=%d mission=%d dest=%08X target=%08X flak1 target=%08X\n",f,tt&&sg_alive(tt)?"alive":"GONE",tt&&sg_alive(tt)?(int)MEM32(tt+0x6C):0,tt&&sg_alive(tt)?(int)MEM32(tt+0xAC):-1,tt&&sg_alive(tt)?MEM32(tt+0x5A4):0,tt&&sg_alive(tt)?MEM32(tt+0x2B4):0,lab_ptr[32]&&sg_alive(lab_ptr[32])?MEM32(lab_ptr[32]+0x2B4):0);
+  if(f==700&&tt&&sg_alive(tt)&&lab_ptr[34]&&sg_alive(lab_ptr[34])){sg_ai_order(tt,lab_ptr[34],1);fprintf(stderr,"[v10] tictac ordered on enemy Fusion Reactor hp=%d\n",(int)MEM32(lab_ptr[34]+0x6C));}
+  if(f>700&&f<=1200&&f%30==0&&lab_ptr[34])fprintf(stderr,"[v10] f=%u fusion reactor %s hp=%d, %.1f cells from tictac, tictac target=%08X\n",f,sg_alive(lab_ptr[34])?"alive":"DESTROYED",sg_alive(lab_ptr[34])?(int)MEM32(lab_ptr[34]+0x6C):0,tt&&sg_alive(tt)&&sg_alive(lab_ptr[34])?sg_dist(tt,lab_ptr[34]):0,tt?MEM32(tt+0x2B4):0);
+  if(f==900)fprintf(stderr,"[v10] heavy tank after tictac attack: %s\n",lab_ptr[20]&&sg_alive(lab_ptr[20])?"alive":"DESTROYED");
+  if(f==2200&&lab_ptr[30]&&sg_alive(lab_ptr[30])){sg_remove(lab_ptr[30]);fprintf(stderr,"[v10] f=%u Area 51 removed\n",f);}
+  if(f==600)fprintf(stderr,"[v10] fusion %s; enemy power output=%d drain=%d\n",lab_ptr[34]&&sg_alive(lab_ptr[34])?"built":"MISSING",(int)MEM32(houses[1]+0x53A4),(int)MEM32(houses[1]+0x53A8));}
  if(f%300==0)fflush(stderr);
 }

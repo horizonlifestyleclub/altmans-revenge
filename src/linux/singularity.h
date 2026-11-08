@@ -22,7 +22,7 @@ static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t typ
 typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled,lasthp; uint32_t alert_until,shield_next; int32_t cable[3];
  int mode,own,dive,tethered,elite; uint32_t ord_target,ord_dest,last_launch,dkey_seen;
  uint32_t deploy_at,op_target,ring_next; int deploy_to,jj_base;
- uint32_t tent[2],tent_uid[2],uplink,uplink_uid,gap_born; int32_t gap_x,gap_y;} SGUnit; /* v10: drone stance/ownership */
+ uint32_t tent[2],tent_uid[2],uplink,uplink_uid,gap_born; int32_t gap_x,gap_y; int tt_max; int32_t tt_x,tt_y;} SGUnit; /* v10: drone stance/ownership */
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -541,6 +541,12 @@ static int sg_promote(uint32_t house){
  }
  return promoted;
 }
+/* Native hook (patch_v10_native.py, UnitClass::ReceiveDamage): the TIC TAC
+   cannot be damaged by anything; it is only lost with its Area 51. */
+void sg_unit_damage(uint32_t u,uint32_t pdamage){
+ if(!sg_on()||u<0x10000||pdamage<0x10000||MEM32(u)!=0x7F5C70||strcmp(sg_id(u,0),"SGTICTAC"))return;
+ if((int32_t)MEM32(pdamage)>0)MEM32(pdamage)=0;
+}
 /* B-2 bomb: Construction Yards and War Factories survive badly damaged. */
 void sg_building_damage(uint32_t b,uint32_t pdamage,uint32_t wh){
  if(!sg_on()||!b||!pdamage||wh<0x10000||strcmp((const char*)hle_ptr(wh+0x24),"SGB2BOMBWH"))return;
@@ -775,6 +781,21 @@ void sg_tick(void) {
         uint32_t h=sg_vec_at(0xA80228,i),newest=0;int n=0;
         for(int j=0;j<sg_vec_count(0xA8EC78);j++){uint32_t q=sg_vec_at(0xA8EC78,j);if(MEM32(q)!=0x7E22A4||!sg_alive(q)||MEM32(q+0x21C)!=h||strcmp(sg_id(q,0),"SGB2"))continue;n++;if(!newest||MEM32(q+0x10)>MEM32(newest+0x10))newest=q;}
         if(n>2&&newest){sg_remove(newest);sg_money(h,2500);fprintf(stderr,"[b2] house %08X had %d B-2s: extra one refunded\n",h,n);if(h==MEM32(0xA83D4C))sg_message("B-2 limit is 2: the extra bomber was refunded.");}
+    }
+    /* v10: TIC TAC - lost with its Area 51; full health kept; attacks only on
+       command until its owner's Singularity is ACTIVE, then hunts on its own. */
+    for(int j=0;j<sg_vec_count(0xA8EC78);j++){
+        uint32_t q=sg_vec_at(0xA8EC78,j);if(MEM32(q)!=0x7F5C70||!sg_alive(q)||strcmp(sg_id(q,0),"SGTICTAC"))continue;
+        uint32_t h=MEM32(q+0x21C);int area=0;
+        for(int k=0;k<bn&&!area;k++){uint32_t b=sg_vec_at(0xA8EB40,k);if(sg_alive(b)&&MEM32(b+0x21C)==h&&!strcmp(sg_id(b,1),"SGAREA"))area=1;}
+        if(!area){sg_explode(q,"TWLT070");fprintf(stderr,"[tictac] %08X lost its Area 51: destroyed\n",q);
+            if(h==MEM32(0xA83D4C))sg_message("Area 51 destroyed: the TIC TAC is lost.");sg_remove(q);continue;}
+        SGUnit*u=sg_state(q);if(u){int hp=(int32_t)MEM32(q+0x6C);if(hp>u->tt_max)u->tt_max=hp;else if(hp<u->tt_max)MEM32(q+0x6C)=(uint32_t)u->tt_max;}
+        uint32_t m=MEM32(q+0xAC);
+        int32_t qx=(int32_t)MEM32(q+0x9C),qy=(int32_t)MEM32(q+0xA0);
+        int still=u&&abs(qx-u->tt_x)<64&&abs(qy-u->tt_y)<64;if(u){u->tt_x=qx;u->tt_y=qy;}
+        int idle=m==0||m==5||m==11||(m==2&&still); /* a finished move or attack leaves it parked in "move" */
+        if(sg_active(sg_house(h))&&idle&&!sg_targetable(MEM32(q+0x2B4))){sg_ai_order(q,0,15);fprintf(stderr,"[tictac] %08X autonomous (Singularity active): hunting\n",q);}
     }
     /* v10: Singularity uplink - hidden prerequisite building that unlocks the
        factory strike drones while the Singularity is active. */

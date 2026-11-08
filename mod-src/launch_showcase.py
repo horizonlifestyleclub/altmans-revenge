@@ -42,7 +42,7 @@ def prepare():
     # Only this sandbox allows the player to rebuild both factions' new kit.
     custom = ['SGLINK','SGOP','SGHOUND','SGNEEDLE','SGLOCUST','SGTANK','SGCOLO','SGNODE1','SGNODE2',
               'SGNODE3','SGNODE4','SGNODE5','SGBATT','SGFACT','SGAEGIS','SGJAM','SGAREA',
-              'SGB2','SGRAVEN','SGAURORA','SGTEMPEST']
+              'SGB2','SGTICTAC','SGAURORA','SGTEMPEST']
     for key in custom:
         for prop in ('Owner', 'RequiredHouses'):
             houses = rules[key].get(prop, '').split(',')

@@ -28,6 +28,7 @@ ITEMS = [
     ('pilot', 'sgpdicon', 'DRONE', 'sgscout'),
     ('b2', 'sgb2ico', 'B-2 BOMBER', 'sgb2'),
     ('raven', 'sgravenico', 'RAVEN', 'sgraven'),
+    ('tictac', 'sgtticon', 'TIC TAC', 'SGTICTAC'),
     ('aurora', 'sgauroraico', 'AURORA', 'sgaurora'),
     ('tempest', 'sgtempestico', 'TEMPEST', 'sgtempest'),
     ('node', 'sgnoicon', 'NODE', 'NASGN'),
@@ -49,6 +50,25 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def paint_tictac(path):
+    """Painted-style TIC TAC portrait: white capsule over a hazy sky."""
+    w, h = 300, 240
+    img = Image.new('RGB', (w, h))
+    px = img.load()
+    for y in range(h):
+        t = y / h
+        for x in range(w):
+            px[x, y] = (int(70 + 90 * t), int(110 + 80 * t), int(170 + 50 * t))
+    d = ImageDraw.Draw(img)
+    for k in range(30):  # soft glow
+        g = 255 - k * 3
+        d.rounded_rectangle((60 - k, 85 - k // 2, 240 + k, 145 + k // 2), radius=30 + k, outline=(g, g, 255))
+    d.rounded_rectangle((60, 85, 240, 145), radius=30, fill=(232, 236, 240))
+    d.rounded_rectangle((70, 90, 230, 108), radius=10, fill=(252, 252, 252))
+    d.rounded_rectangle((70, 126, 230, 142), radius=8, fill=(185, 190, 200))
+    img.filter(ImageFilter.SMOOTH).save(path)
+
+
 def compile_icons():
     compiled = OUT / 'compiled'
     compiled.mkdir(exist_ok=True)
@@ -58,6 +78,8 @@ def compile_icons():
     records = []
     for key, stem, label, section in ITEMS:
         source = OUT / 'sources' / (key + '.png')
+        if key == 'tictac' and not source.exists():
+            paint_tictac(source)
         # v09: classic RA2 cameo layout. The picture fills the whole icon and the
         # caption sits on it in light capitals with a black outline, no black bar.
         src = Image.open(source).convert('RGB')
@@ -110,7 +132,7 @@ def make_preview(icons):
     subfont = ImageFont.truetype(fontpath, 17)
     rows = [
         ('ALLIES / US  |  FIELD UNITS', ['link', 'hound', 'bastion', 'pilot']),
-        ('ALLIES / US  |  EXPERIMENTAL AIRCRAFT', ['b2', 'raven', 'aurora', 'tempest']),
+        ('ALLIES / US  |  EXPERIMENTAL AIRCRAFT', ['b2', 'tictac', 'aurora', 'tempest']),
         ('ALLIES / US  |  INFRASTRUCTURE', ['colossus', 'area51', 'aegis']),
         ('CHINA / SOVIETS  |  DRONES AND CONTROL', ['nest', 'needle', 'locust', 'interference']),
         ('CHINA / SOVIETS  |  INDUSTRIAL NETWORK', ['factory', 'reactor', 'battery', 'node']),

@@ -175,3 +175,25 @@ add('SGCYBER','MTNK','VehicleTypes','Cyber Warfare Unit',Image='PROPA',Owner=CN,
     Primary='',ElitePrimary='',Secondary='',EliteSecondary='',CanPassiveAquire='no',AIBuildThis='no',Turret='no',DeathWeapon='',Crusher='no')
 labels['Name:SGCYBER']='Cyber Warfare Unit (mobile: slowly darkens the enemy map)'
 a['PROPA']['Cameo']=a.get('TRUCKA',{}).get('Cameo','TRKAICON');a['PROPA']['AltCameo']=a['PROPA']['Cameo']
+
+# ---- Area 51: the TIC TAC replaces the RAVEN / FURY ----
+# Cannot be destroyed (runtime zeroes all damage to it); attacks ground and air,
+# but only when ordered; once its owner's Singularity is ACTIVE it hunts on its
+# own. It is lost when its Area 51 is destroyed (runtime).
+r['SGRAVEN']['TechLevel']='-1'
+add('SGTICTACWH','AP',None,None,Verses='100%,100%,100%,100%,100%,100%,60%,60%,60%,100%,100%')
+add('SGTICTACGUN','SGDRONEGUN',None,None,Damage='120',ROF='35',Range='9',Projectile='InvisibleLowAA',Warhead='SGTICTACWH',
+    IsLaser='yes',LaserInnerColor='255,255,255',LaserOuterColor='140,210,255',LaserOuterSpread='0,0,0',LaserDuration='8',
+    Report='PrismTowerAttack',Anim='',Burst='1')
+add('SGTICTAC','SGPDRONE','VehicleTypes','TIC TAC',Image='SGTICTAC',Owner='Americans,British',RequiredHouses='Americans,British',ForbiddenHouses='',
+    Prerequisite='GAWEAP,SGAREA',Cost='3500',Strength='1000',Speed='22',JumpjetSpeed='24',BuildLimit='1',TechLevel='10',
+    Primary='SGTICTACGUN',ElitePrimary='SGTICTACGUN',Secondary='',EliteSecondary='',CanPassiveAquire='no',CanRetaliate='no',
+    Sight='10',Armor='heavy',ImmuneToPsionics='yes',ImmuneToPsionicWeapons='yes',ImmuneToRadiation='yes',AIBuildThis='no',Points='200')
+a['SGTICTAC']={'Voxel':'yes','Remapable':'yes','Cameo':'sgtticon','AltCameo':'sgtticon','PrimaryFireFLH':'0,0,0'}
+labels['Name:SGTICTAC']='TIC TAC (cannot be destroyed; attacks on your order; lost with Area 51)'
+
+# ---- China: Fusion Reactor - unlimited power ----
+add('SGFUSION','NANRCT','BuildingTypes','Fusion Reactor',Image='NANRCT',Owner=CN+',Confederation',RequiredHouses=CN+',Confederation',ForbiddenHouses='',
+    Prerequisite='NATECH,NACNST',Cost='3000',Power='50000',Strength='1500',BuildLimit='1',TechLevel='7',
+    DeathWeapon='SGSHAHEDHIT',DeathWeaponDamageModifier='1',Capturable='false',Spyable='no',Drainable='no',AIBuildThis='no')
+labels['Name:SGFUSION']='Fusion Reactor (unlimited power, one per base)'
