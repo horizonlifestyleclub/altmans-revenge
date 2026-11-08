@@ -5,8 +5,9 @@ code=(root/'work/singularity/build_mod.py').read_text();ns={};exec(code[code.ind
 base=root/'outputs/redalert2-recomp/mods/yr/Singularity';out=base.parent/'Singularity - Adaptive';out.mkdir(exist_ok=True)
 for src in base.iterdir():
  if not src.is_file() or src.name.lower() in ['rulesmd.ini','ra2md.ini','aimd.ini','readme.txt','ra2md.csf']:continue
- dst=out/src.name
- if not dst.exists():dst.symlink_to(src)
+ dst=out/src.name;rel=Path('..')/base.name/src.name # relative: stays inside this checkout
+ if dst.is_symlink() and Path(dst.readlink())!=rel:dst.unlink()
+ if not dst.exists() and not dst.is_symlink():dst.symlink_to(rel)
 r=readini(base/'rulesmd.ini')
 r['General'].update(MultiplayerAICM='0,0,0',AIVirtualPurifiers='0,0,0',AITriggerSuccessWeightDelta='0',AITriggerFailureWeightDelta='0',MinimumAIDefensiveTeams='0,0,0',MaximumAIDefensiveTeams='0,0,0')
 for k in ['Easy','Normal','Difficult']:

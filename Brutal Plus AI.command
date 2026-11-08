@@ -1,0 +1,3 @@
+#!/bin/sh
+cd "$(dirname "$0")" || exit 1
+exec ./build-macos/ra2-singularity --run --mod "Singularity - Brutal Plus" "$@"

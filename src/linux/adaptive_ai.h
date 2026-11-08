@@ -75,7 +75,9 @@ static void sg_ai_choose(uint32_t h,uint32_t vector,uint32_t offset,const char*i
  uint32_t args[3]={t,0,0};if(sg_ai_call(h,0x4F7870,3,args)!=1)return;
  MEM32(h+offset)=idx;fprintf(stderr,"[adaptive] house=%d production=%s via normal factory\n",MEM32(h+0x30),id);
 }
+static int sg_bp_refuse(uint32_t p,uint32_t target,int mission);
 static void sg_ai_order(uint32_t p,uint32_t target,int mission){
+ if(sg_bp_refuse(p,target,mission))return;
  sg_ai_issuing++;uint32_t args[2]={(uint32_t)mission,1};sg_ai_call(p,0x5B35E0,2,args);
  if(target){args[0]=target;args[1]=1;sg_ai_call(p,MEM32(MEM32(p)+0x480),2,args);if(mission==1||mission==8)sg_ai_call(p,MEM32(MEM32(p)+0x3C8),1,&target);}
  sg_ai_issuing--;
@@ -98,9 +100,11 @@ static void sg_ai_sanitize(void){
   }
  }
 }
+#include "adaptive_ai_bp.h"
 /* Legacy strategic unit selection is bypassed. Existing factory machinery still
  * charges credits, obeys prerequisites and takes normal time to finish units. */
 int sg_ai_production(uint32_t h,int category){
+ if(sg_bp_house(h))return sg_bp_production(h,category);
  if(!sg_ai_house(h))return 0;SGAIBrain*b=sg_ai_brain(h);if(!b)return 1;
  int sov=MEM32(h+0x1E8)==1;
  if(category==0){
@@ -148,6 +152,7 @@ int sg_ai_production(uint32_t h,int category){
  return 1;
 }
 static void sg_ai_tick(uint32_t f){
+ sg_bp_tick(f);
  if(!sg_ai_mode())return;
  for(int hi=0;hi<sg_vec_count(0xA80228);hi++){
   uint32_t h=sg_vec_at(0xA80228,hi);if(!sg_ai_house(h))continue;SGAIBrain*b=sg_ai_brain(h);if(!b)continue;
@@ -194,6 +199,7 @@ static void sg_ai_tick(uint32_t f){
  }
 }
 #else
+int sg_bp_house(uint32_t h){(void)h;return 0;}
 static void sg_ai_sanitize(void){}
 int sg_ai_production(uint32_t h,int category){(void)h;(void)category;return 0;}
 static void sg_ai_tick(uint32_t f){(void)f;}
