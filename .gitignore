@@ -76,3 +76,10 @@ lan-frames/
 mods/yr/
 mods/ra2/
 mods-test/
+
+# Per-checkout link farm made by mod-src/sgpaths.py
+.sgroot/
+# Local handoff notes and test output
+HANDOFF-singularity.md
+adaptive-playtest/
+unit-showcase/
