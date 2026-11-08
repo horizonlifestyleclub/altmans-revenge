@@ -29,8 +29,9 @@ static SGBPBrain*sg_bp_brain(uint32_t h){int i=MEM32(h+0x30);if(i<0||i>=32)retur
 static int sg_bp_is_foot(uint32_t p){uint32_t vt=MEM32(p);return vt==0x7F5C70||vt==0x7EB058;}
 /* Units the coordinator may command: ground combat units not in a scripted
  * (scout / raid / defence) team. */
+static int sg_llm_reserved(uint32_t p);
 static int sg_bp_free(uint32_t p,uint32_t h){
- if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_foot(p))return 0;
+ if(!sg_alive(p)||MEM32(p+0x21C)!=h||!sg_bp_is_foot(p)||sg_llm_reserved(p))return 0; /* scout/raiders belong to the commander */
  const char*id=sg_ai_id(p);if(sg_civilian_role(id)||!strcmp(id,"SMIN")||!strcmp(id,"SGPDRONE")||!strcmp(id,"SGNEEDLE"))return 0;
  uint32_t team=MEM32(p+SG_BP_TEAM);
  if(team>=0x10000){uint32_t tt=MEM32(team+0x24);if(tt<0x10000||strncmp((const char*)hle_ptr(tt+0x24),"BPP",3))return 0;}
@@ -270,6 +271,8 @@ static const char*sg_bp_pick_unit(uint32_t h,int infantry,unsigned turn){
 #define BP_TRY(id) do{if(n<8&&sg_bp_eligible(h,id))c[n++]=id;}while(0)
  /* LLM commander's build focus: skip the other category half the time and
     put its preferred units at the front of the list. */
+ {const char*bid=sg_llm_build_id(h);int idx; /* a unit the commander named, if this factory makes it */
+  if(bid&&sg_ai_find_type(infantry?0xA8E348:0xA83CE0,bid,&idx)){BP_TRY(bid);BP_TRY(bid);}}
  if(sg_llm_is(h,"build","armour")&&infantry&&turn%2)return NULL;
  if(sg_llm_is(h,"build","infantry")&&!infantry&&turn%2)return NULL;
  if(sg_llm_is(h,"build","antiair")){if(side==1){BP_TRY(infantry?"FLAKT":"HTK");BP_TRY(infantry?"FLAKT":"HTK");}else if(side==2){if(!infantry){BP_TRY("YTNK");BP_TRY("YTNK");}}else{BP_TRY(infantry?"GGI":"FV");BP_TRY(infantry?"GGI":"FV");}}
@@ -343,6 +346,7 @@ static void sg_bp_tick(uint32_t f){
   uint32_t h=sg_vec_at(0xA80228,hi);if(!sg_bp_house(h))continue;SGBPBrain*b=sg_bp_brain(h);if(!b)continue;
   if(f<b->last){memset(b,0,sizeof *b);b->house=h;}
   if(b->sx)sg_bp_reflex(b,f); /* every second */
+  sg_llm_frame(b,f); /* Qwen commander: orders, events, scout, raids */
   if(f-b->last<45)continue;b->last=f; /* every 3 seconds */
   int difficulty=(int32_t)MEM32(h+0x184);if(difficulty<0||difficulty>2)difficulty=0;
   uint32_t anchor=0;for(int i=0;i<sg_vec_count(0xA8EB40);i++){uint32_t q=sg_vec_at(0xA8EB40,i);if(!sg_alive(q)||MEM32(q+0x21C)!=h)continue;const char*id=sg_ai_id(q);if(!anchor||strstr(id,"CNST"))anchor=q;}
@@ -353,7 +357,7 @@ static void sg_bp_tick(uint32_t f){
   int threat=sg_bp_defend(b);
   /* A big attack on the base recalls a wave that has not engaged yet. */
   if((b->state==SG_BP_MARCH&&threat>3000)||(b->state==SG_BP_ASSAULT&&threat>6000)){for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i]))sg_bp_move(b->wave[i],b->sx,b->sy);b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;fprintf(stderr,"[brutalplus] house=%d wave recalled to defend ($%d threat)\n",MEM32(h+0x30),threat);}
-  if(sg_llm_is(h,"stance","defend")&&b->state==SG_BP_MARCH){for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i]))sg_bp_move(b->wave[i],b->sx,b->sy);b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;fprintf(stderr,"[llm] wave called home (defend stance)\n");}
+  if((sg_llm_is(h,"stance","defend")&&b->state==SG_BP_MARCH)||(sg_llm_is(h,"stance","retreat")&&b->state!=SG_BP_GATHER)){for(int i=0;i<b->wn;i++)if(sg_alive(b->wave[i]))sg_bp_move(b->wave[i],b->sx,b->sy);b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;fprintf(stderr,"[llm] wave called home (%s stance)\n",sg_llm.stance);}
   sg_bp_army(b,f,difficulty);
   sg_llm_tick(b,f,threat);
   if(f%900<45){int n=0,v=0,teamed=0;char plan[32]="-",enemies[64]="";int pi=(int32_t)MEM32(h+0x564C);if(pi>=0&&pi<sg_vec_count(0xA83C68))snprintf(plan,sizeof plan,"%s",(const char*)hle_ptr(sg_vec_at(0xA83C68,pi)+0x24));

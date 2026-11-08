@@ -21,7 +21,7 @@ import sys
 
 t = __import__('launch_adaptive_test')
 t.PROFILE = 'Singularity - Brutal Plus'
-t.TEST = t.REPO / 'brutalplus-playtest'
+t.TEST = t.REPO / ('brutalplus-dev' if '--dev' in __import__('sys').argv else 'brutalplus-playtest')  # --dev: a second copy, so tests never touch a game you are playing
 VERSUS_MAP = t.ROOT / 'work/singularity/maps/xmp09t3.map'   # 3 start points; replaces scenario 0 in the test copy only
 
 if __name__ == '__main__':
@@ -33,6 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--enemy', type=int, default=8)
     parser.add_argument('--classic', type=int, default=8)
     parser.add_argument('--llm', action='store_true')
+    parser.add_argument('--dev', action='store_true')
     parser.add_argument('--model', default='qwen3:4b')
     args = parser.parse_args()
     binary = t.prepare()
@@ -62,9 +63,9 @@ if __name__ == '__main__':
     if args.smoke_test:
         command += ['--headless', '--mute', '--watchdog', str(args.seconds)]
     if args.llm and not args.prepare_only:
-        run = t.REPO / 'llm-bridge/run'
+        run = t.REPO / ('llm-bridge/run-dev' if args.dev else 'llm-bridge/run')
         run.mkdir(parents=True, exist_ok=True)
-        for name in ('ledger.json', 'orders.json'):
+        for name in ('ledger.json', 'orders.json', 'match.jsonl'):
             if (run / name).exists():
                 (run / name).unlink()
         os.environ['SG_LLM_DIR'] = str(run)

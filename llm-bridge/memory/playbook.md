@@ -1,5 +1,5 @@
 # Commander playbook (lessons the model learned; rewritten after every match)
 
-- If enemy core is vulnerable, attack now with target core.
-- If enemy harvester near ore, defend refinery for a moment.
-- If enemy units seen < 3, harass refinery with armour.
+- If enemy units are near your ore, defend for a moment, then harass back.
+- If enemy has many defences, build artillery.
+- If enemy is building Singularity core, switch to attack with target core.

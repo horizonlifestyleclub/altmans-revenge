@@ -90,3 +90,12 @@ llm-bridge/run/
 llm-bridge/memory/matches/
 llm-bridge/memory/last-match.md
 llm-bridge/__pycache__/
+brutalplus-dev/
+llm-bridge/run-dev/
+llm-bridge/memory/master.log
+# Learned per game (stay on this Mac, not in git); the starting strategy is strategies/v001.md
+llm-bridge/memory/strategy.md
+llm-bridge/memory/opponent.md
+llm-bridge/memory/strategy-log.md
+llm-bridge/memory/strategies/v*.md
+!llm-bridge/memory/strategies/v001.md
