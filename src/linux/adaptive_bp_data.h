@@ -526,6 +526,7 @@ static const struct {const char*id;int cost,strength;} sg_bp_costs[]={
 {"SGTEMPEST",2400,700},
 {"SGTENT",0,300},
 {"SGTICTAC",3500,1000},
+{"SGTRUMP",2000,200},
 {"SGUPLINK",500,400},
 {"SGWDRONE",0,15},
 {"SHAD",1000,175},

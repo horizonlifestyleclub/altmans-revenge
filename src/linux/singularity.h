@@ -11,7 +11,7 @@
 #ifndef SG_INTEGRATION_TICKS
 #define SG_INTEGRATION_TICKS 1800
 #endif
-typedef struct { uint32_t uplink,uplink_uid,next_uplink; uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state,stage,held,cost_steps; uint32_t sink,core_uid,outage_until,outage_by,next_outage,next_heist,next_cost,next_focus,next_hunt,next_cash; float cost_base[2],cost_written[2]; } SGHouse;
+typedef struct { uint32_t uplink,uplink_uid,next_uplink; uint32_t ptr,progress,lastpulse; int nodes,colossus,batteries,powered,battery_output; double charge,level; float basecost[3]; int captured,research_started,blackout_enabled,cyber,state,stage,held,cost_steps; uint32_t sink,core_uid,outage_until,outage_by,next_outage,next_heist,next_cost,next_focus,next_hunt,next_cash; float cost_base[5],cost_written[5]; } SGHouse;
 static SGHouse sg_houses[32];
 static uint32_t sg_lastframe,sg_lasttick;
 enum {SG_OFFLINE,SG_READY,SG_RESEARCHING,SG_INTEGRATING,SG_ACTIVE,SG_SUSPENDED};
@@ -592,7 +592,30 @@ static void sg_outage_timer(uint32_t house,int frames,int on){
  MEM8(sw+0x6F)=0;MEM32(sw+0x30)=MEM32(RA2_GAME_FRAME_VA);MEM32(sw+0x38)=(uint32_t)frames;
 #endif
 }
+/* v10: TRUMP tariffs. While a TRUMP is alive every price rises: +10% when he
+   arrives, +10% per minute after, capped at +50%. The Colossus (and future oil
+   derricks) are exempt: their list price is divided by the same factor. */
+static float sg_tariff=1.f;static int sg_tariff_step;static uint32_t sg_trump_since;
+static int sg_cost_off;static int32_t sg_colo_cost;
+static uint32_t sg_btype(const char*id){for(int i=0;i<sg_vec_count(0xA83C68);i++){uint32_t t=sg_vec_at(0xA83C68,i);if(!strcmp((const char*)hle_ptr(t+0x24),id))return t;}return 0;}
+static void sg_tariffs(uint32_t f){
+ uint32_t trump=0;
+ for(int i=0;i<sg_vec_count(0xA8EC78)&&!trump;i++){uint32_t q=sg_vec_at(0xA8EC78,i);if(MEM32(q)==0x7EB058&&sg_alive(q)&&!strcmp(sg_id(q,0),"SGTRUMP"))trump=q;}
+ int step=0;
+ if(trump){if(!sg_trump_since)sg_trump_since=f?f:1;step=1+(int)((f-sg_trump_since)/900);if(step>5)step=5;}else sg_trump_since=0;
+ if(step!=sg_tariff_step){char m[120];
+  if(!step)snprintf(m,sizeof m,"Tariffs lifted: prices are back to normal.");
+  else if(!sg_tariff_step)snprintf(m,sizeof m,"TARIFFS! Trump is in office: everything costs +%d%% (Colossus exempt).",10*step);
+  else snprintf(m,sizeof m,"Tariffs raised: everything now costs +%d%%.",10*step);
+  sg_message(m);fprintf(stderr,"[tariff] step %d -> %d (+%d%%)\n",sg_tariff_step,step,10*step);sg_tariff_step=step;}
+ sg_tariff=1.f+0.1f*(float)step;
+ /* Colossus exemption: find TechnoType::Cost once (7500 on SGCOLO, 1000 on NANRCT). */
+ uint32_t colo=sg_btype("SGCOLO"),ref=sg_btype("NANRCT");
+ if(!sg_cost_off&&colo&&ref)for(int o=0x100;o<0x1000&&!sg_cost_off;o+=4)if(MEM32(colo+o)==7500&&MEM32(ref+o)==1000){sg_cost_off=o;sg_colo_cost=7500;fprintf(stderr,"[tariff] TechnoType cost at +0x%X\n",o);}
+ if(sg_cost_off&&colo){int32_t want=(int32_t)lroundf((float)sg_colo_cost/sg_tariff);if((int32_t)MEM32(colo+sg_cost_off)!=want)MEM32(colo+sg_cost_off)=(uint32_t)want;}
+}
 static void sg_effects(uint32_t f,int hn){
+ sg_tariffs(f);
  if(!sg_seeded){sg_seed=((uint32_t)time(NULL)*2654435761u)|1u;sg_seeded=1;} /* different events every match */
  uint32_t player=MEM32(0xA83D4C);char msg[160];
  for(int i=0;i<hn;i++){
@@ -617,11 +640,14 @@ static void sg_effects(uint32_t f,int hn){
   }
   /* Price multipliers (CostUnitsMult +0x5394, CostAircraftMult +0x5398). The
      engine recomputes them when buildings change; detect that and re-apply. */
-  for(int k=0;k<2;k++){
-   float cur;memcpy(&cur,hle_ptr(a->ptr+0x5394+4*k),4);
+  /* v10: slots 0..4 = infantry, vehicles, aircraft, buildings, defences
+     (+0x5390..+0x53A0). Singularity steps cut vehicles/aircraft; TRUMP
+     tariffs raise every slot for every house. */
+  for(int k=0;k<5;k++){
+   float cur;memcpy(&cur,hle_ptr(a->ptr+0x5390+4*k),4);
    if(!a->cost_written[k]||fabsf(cur-a->cost_written[k])>1e-4f)a->cost_base[k]=cur;
-   float want=a->cost_base[k]*(1.f-0.1f*(float)a->cost_steps);
-   if(fabsf(cur-want)>1e-4f){memcpy(hle_ptr(a->ptr+0x5394+4*k),&want,4);}
+   float want=a->cost_base[k]*((k==1||k==2)?(1.f-0.1f*(float)a->cost_steps):1.f)*sg_tariff;
+   if(fabsf(cur-want)>1e-4f){memcpy(hle_ptr(a->ptr+0x5390+4*k),&want,4);}
    a->cost_written[k]=want;
   }
   /* Grid outage ends. */

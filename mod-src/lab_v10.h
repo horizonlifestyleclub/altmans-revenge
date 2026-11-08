@@ -27,6 +27,7 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*35*/{"TANY",0xA8E348,36,66,0},
  /*36*/{"SGTENT",0xA83C68,38,62,0},{"SNIPE",0xA8E348,37,67,0},{"YURI",0xA8E348,38,67,0},
  /*39*/{"E1",0xA8E348,39,67,0},
+ /*40*/{"SGTRUMP",0xA8E348,30,66,0},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -166,5 +167,10 @@ static void sg_lab_tick(uint32_t f){
   if(f==500&&ty&&sg_alive(ty)){tent=lab_ptr[36]&&sg_alive(lab_ptr[36])?lab_ptr[36]:0;for(int k=37;k<=39&&tent;k++)if(lab_ptr[k]&&sg_alive(lab_ptr[k]))sg_ai_order(lab_ptr[k],tent,7);
    if(tent){fprintf(stderr,"[v10] Sniper + Yuri ordered into camp tent %08X (%.1f cells)\n",tent,sg_dist(ty,tent));}else fprintf(stderr,"[v10] no camp tent to garrison\n");}
   if(tent&&f>=560&&f<=1300&&f%60==0)fprintf(stderr,"[v10] f=%u tent %s occupants=%d sniper at (%d,%d) mission %d; GI mission %d at (%d,%d); owner tent=%08X us=%08X\n",f,sg_alive(tent)?"standing":"GONE",sg_alive(tent)?(int)MEM32(tent+0x694):-1,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0x9C)/256:0,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0xA0)/256:0,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0xAC):-1,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0xAC):-1,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0x9C)/256:0,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0xA0)/256:0,sg_alive(tent)?MEM32(tent+0x21C):0,houses[0]);}
+ /* 16. TRUMP tariffs: multipliers rise each minute for every house, the Colossus
+    list price is divided by the same factor; removing him lifts them. */
+ if(f%300==0&&f>=60){float m[5],e[5];for(int k=0;k<5;k++){memcpy(&m[k],hle_ptr(houses[0]+0x5390+4*k),4);memcpy(&e[k],hle_ptr(houses[1]+0x5390+4*k),4);}
+  uint32_t ct=sg_btype("SGCOLO");fprintf(stderr,"[v10] f=%u tariff=%.2f trump %s | ours inf %.2f veh %.2f air %.2f bld %.2f def %.2f | enemy inf %.2f bld %.2f | colossus list %d -> pays %.0f\n",f,sg_tariff,lab_ptr[40]&&sg_alive(lab_ptr[40])?"alive":"gone",m[0],m[1],m[2],m[3],m[4],e[0],e[3],sg_cost_off?(int)MEM32(ct+sg_cost_off):-1,sg_cost_off?MEM32(ct+sg_cost_off)*m[3]:0.);}
+ if(f==3000&&lab_ptr[40]&&sg_alive(lab_ptr[40])){sg_remove(lab_ptr[40]);fprintf(stderr,"[v10] f=%u TRUMP removed\n",f);}
  if(f%300==0)fflush(stderr);
 }

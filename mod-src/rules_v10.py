@@ -214,3 +214,14 @@ r['SGSTARLINK']['Image']='GASSL'
 a['GASSL']={k:v for k,v in a['GAAIRC'].items() if not k.startswith(('BibShape','Docking','ActiveAnim'))}
 a['GASSL'].update(Image='GAAIRC',Cameo='sgslicon',AltCameo='sgslicon',
     ActiveAnim='GAAIRC_C',ActiveAnimDamaged='GAAIRC_CD',ActiveAnimZAdjust='-80',ActiveAnimYSort='543')
+
+# ---- TRUMP: Allied hero; while he lives everyone's prices rise (tariffs) ----
+# +10% when he arrives, +10% per minute after, up to +50%; the Colossus (and
+# future oil derricks) keep their price. Runtime: sg_tariffs() in singularity.h.
+add('SGTRUMP','E1','InfantryTypes','TRUMP',Image='PRES',Owner=ALLIES,RequiredHouses='',ForbiddenHouses='',
+    Prerequisite='GAPILE,GATECH',Cost='2000',Strength='200',Speed='4',BuildLimit='1',TechLevel='10',
+    Primary='SGSIDEARM',ElitePrimary='SGSIDEARM',Secondary='',EliteSecondary='',Deployer='no',DeployFire='no',
+    Occupier='no',Fraidycat='no',Civilian='no',Category='Soldier',AIBuildThis='no',Points='100',
+    ImmuneToPsionics='yes',Crushable='no',AllowedToStartInMultiplayer='no')
+a['PRES'].update(Cameo='sgtrumpicon',AltCameo='sgtrumpicon')
+labels['Name:SGTRUMP']='TRUMP (tariffs: all prices +10%, rising to +50%; Colossus exempt)'

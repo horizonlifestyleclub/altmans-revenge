@@ -30,6 +30,7 @@ ITEMS = [
     ('raven', 'sgravenico', 'RAVEN', 'sgraven'),
     ('tictac', 'sgtticon', 'TIC TAC', 'SGTICTAC'),
     ('starlink', 'sgslicon', 'STARLINK', 'GASSL'),
+    ('trump', 'sgtrumpicon', 'TRUMP', 'PRES'),
     ('aurora', 'sgauroraico', 'AURORA', 'sgaurora'),
     ('tempest', 'sgtempestico', 'TEMPEST', 'sgtempest'),
     ('node', 'sgnoicon', 'NODE', 'NASGN'),
@@ -91,6 +92,25 @@ def paint_starlink(path):
     img.save(path)
 
 
+def paint_trump(path):
+    """Painted-style portrait: dark suit, long red tie, swept blond hair, flag stripes."""
+    w, h = 300, 240
+    img = Image.new('RGB', (w, h), (30, 50, 110))
+    d = ImageDraw.Draw(img)
+    for i in range(7):
+        d.rectangle((0, i * 34, w, i * 34 + 16), fill=(150, 30, 40) if i % 2 == 0 else (225, 225, 230))
+    d.rectangle((0, 0, 120, 120), fill=(30, 50, 110))
+    d.polygon([(40, 240), (80, 150), (220, 150), (260, 240)], fill=(28, 32, 48))        # suit
+    d.polygon([(125, 150), (175, 150), (150, 200)], fill=(240, 240, 240))               # shirt
+    d.polygon([(142, 152), (158, 152), (163, 236), (150, 240), (137, 236)], fill=(200, 25, 35))  # long tie
+    d.ellipse((105, 55, 195, 160), fill=(235, 160, 110))                                 # face
+    d.pieslice((95, 30, 215, 120), 180, 360, fill=(240, 205, 90))                         # hair
+    d.polygon([(95, 75), (215, 75), (225, 60), (100, 55)], fill=(240, 205, 90))
+    d.ellipse((128, 95, 140, 103), fill=(40, 40, 40)); d.ellipse((160, 95, 172, 103), fill=(40, 40, 40))
+    d.arc((130, 120, 170, 145), 200, 340, fill=(120, 40, 40), width=3)
+    img.save(path)
+
+
 def compile_icons():
     compiled = OUT / 'compiled'
     compiled.mkdir(exist_ok=True)
@@ -104,6 +124,8 @@ def compile_icons():
             paint_tictac(source)
         if key == 'starlink' and not source.exists():
             paint_starlink(source)
+        if key == 'trump' and not source.exists():
+            paint_trump(source)
         # v09: classic RA2 cameo layout. The picture fills the whole icon and the
         # caption sits on it in light capitals with a black outline, no black bar.
         src = Image.open(source).convert('RGB')
