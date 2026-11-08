@@ -84,6 +84,12 @@ PLANNED += ['HTNK', 'HTK', 'V3', 'APOC', 'SGSHAHED', 'SGTANKC', 'SGEMPT', 'LTNK'
 for b in SG_BUILDINGS:
     if b in r:
         r[b]['AIBuildThis'] = 'yes'
+# New units are never handed out as starting units. The Allied EMP tank (SGEMPT)
+# is left alone here: it is being redesigned on another branch.
+for kind in ('VehicleTypes', 'InfantryTypes', 'AircraftTypes'):
+    for u in r[kind].values():
+        if u.startswith('SG') and u != 'SGEMPT' and u in r:
+            r[u]['AllowedToStartInMultiplayer'] = 'no'
 
 
 def write(p, data, head):
@@ -275,7 +281,7 @@ b = (base / 'ra2md.csf').read_bytes()
 magic, version, nlabels, nstrings, unused, lang = struct.unpack_from('<4s5I', b)
 pos = 24
 entries = []
-names = {'GUI:AIEasy': 'Classic Brutal (original AI)', 'GUI:AINormal': 'Brutal Plus Veteran', 'GUI:AIHard': 'Brutal Plus'}
+names = {'GUI:AIEasy': 'Classic Brutal (original AI)', 'GUI:AINormal': 'Brutal Plus', 'GUI:AIHard': 'Qwen Commander (learning)'}
 for _ in range(nlabels):
     count, n = struct.unpack_from('<II', b, pos + 4)
     pos += 12

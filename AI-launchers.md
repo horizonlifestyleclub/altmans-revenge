@@ -26,3 +26,13 @@ The test has private settings and its own executable location under `adaptive-pl
 Custom drone and AI state still does not support reliable save/load; use a fresh test match. Quit the test normally when finished. Starting the test does not close any existing match; finish or exit your other match first if you only want one game window.
 
 Prepared locally. No commit, push, pull request or deployment. The test is available on demand and is not left running automatically.
+
+## Brutal Plus + Qwen commander (branch v10/qwen-smart)
+
+- In the **Singularity - Brutal Plus** skirmish menu, pick an AI's difficulty:
+  **Qwen Commander (learning)** (hardest), **Brutal Plus**, or **Classic Brutal (original AI)**.
+- Choosing Qwen starts the commander and Ollama by itself, however the game was launched.
+  If Ollama or the model is missing, that AI simply plays as Brutal Plus.
+- After every game of 5+ minutes it hones `llm-bridge/memory/strategy.md` and `opponent.md`
+  (how you play). Only the last 3 matches and a few strategy versions are kept.
+- Details: `llm-bridge/README.md`.
