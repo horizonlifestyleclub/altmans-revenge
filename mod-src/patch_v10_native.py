@@ -26,3 +26,12 @@ print('v10 mobile gap patch applied')
 # UnitClass::ReceiveDamage: the TIC TAC takes no damage.
 entry('recomp_0050.c','00737C90','tic tac invulnerable','{ extern void sg_unit_damage(uint32_t,uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); sg_unit_damage(ecx,MEM32(esp+4)); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); }')
 print('v10 tic tac damage patch applied')
+# GadgetClass input walk (0x4E15A0): a corrupt "next" link (seen: 0x0023FFF0,
+# below the game image) crashed the game. Stop the walk at an impossible
+# pointer instead, and log which gadget handed it out.
+p=root/'recomp_0014.c';s=p.read_text();marker='/* SG v10 gadget walk guard */'
+if marker not in s:
+ anchor='L_004E15C4:\n';assert s.count(anchor)==1
+ s=s.replace(anchor,anchor+'    '+marker+'\n    { extern int sg_gadget_bad(uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); int bad=sg_gadget_bad(ecx); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); if(bad)goto L_004E1626; }\n')
+ p.write_text(s)
+print('v10 gadget walk guard applied')

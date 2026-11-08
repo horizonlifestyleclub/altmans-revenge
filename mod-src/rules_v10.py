@@ -197,3 +197,20 @@ add('SGFUSION','NANRCT','BuildingTypes','Fusion Reactor',Image='NANRCT',Owner=CN
     Prerequisite='NATECH,NACNST',Cost='3000',Power='50000',Strength='1500',BuildLimit='1',TechLevel='7',
     DeathWeapon='SGSHAHEDHIT',DeathWeaponDamageModifier='1',Capturable='false',Spyable='no',Drainable='no',AIBuildThis='no')
 labels['Name:SGFUSION']='Fusion Reactor (unlimited power, one per base)'
+
+# ---- Garrison: every combat infantry can enter garrisonable buildings ----
+# Gun units fire their own weapon from inside; special units (mind control,
+# bombs, chrono, punch) fire a plain sidearm. Engineers, spies, dogs, robot dogs
+# Rocketeers and Tanya (her 'enter' is a C4 demolition) keep their own behaviour.
+for key in ['SHK','GHOST','DESO','CCOMAND','SNIPE','FLAKT','BORIS','LUNR']:
+ w=r[key].get('Primary','') or 'SGSIDEARM'
+ r[key].update(Occupier='yes',OccupyWeapon=w,EliteOccupyWeapon=r[key].get('ElitePrimary',w) or w,OccupyPip='PersonBlue')
+for key in ['YURI','YURIPR','PTROOP','IVAN','CIVAN','TERROR','BRUTE','VIRUS','CLEG']:
+ r[key].update(Occupier='yes',OccupyWeapon='SGSIDEARM',EliteOccupyWeapon='SGSIDEARM',OccupyPip='PersonBlue')
+
+# ---- Starlink: the Airforce Command building and its radar dish, without the
+#      aircraft pads (no pad lights, no pad floor, no docking) ----
+r['SGSTARLINK']['Image']='GASSL'
+a['GASSL']={k:v for k,v in a['GAAIRC'].items() if not k.startswith(('BibShape','Docking','ActiveAnim'))}
+a['GASSL'].update(Image='GAAIRC',Cameo='sgslicon',AltCameo='sgslicon',
+    ActiveAnim='GAAIRC_C',ActiveAnimDamaged='GAAIRC_CD',ActiveAnimZAdjust='-80',ActiveAnimYSort='543')

@@ -29,6 +29,7 @@ ITEMS = [
     ('b2', 'sgb2ico', 'B-2 BOMBER', 'sgb2'),
     ('raven', 'sgravenico', 'RAVEN', 'sgraven'),
     ('tictac', 'sgtticon', 'TIC TAC', 'SGTICTAC'),
+    ('starlink', 'sgslicon', 'STARLINK', 'GASSL'),
     ('aurora', 'sgauroraico', 'AURORA', 'sgaurora'),
     ('tempest', 'sgtempestico', 'TEMPEST', 'sgtempest'),
     ('node', 'sgnoicon', 'NODE', 'NASGN'),
@@ -69,6 +70,27 @@ def paint_tictac(path):
     img.filter(ImageFilter.SMOOTH).save(path)
 
 
+def paint_starlink(path):
+    """Painted-style STARLINK portrait: flat white terminals under a starry dusk sky."""
+    w, h = 300, 240
+    img = Image.new('RGB', (w, h))
+    px = img.load()
+    for y in range(h):
+        t = y / h
+        for x in range(w):
+            px[x, y] = (int(20 + 50 * t), int(26 + 60 * t), int(60 + 90 * t))
+    d = ImageDraw.Draw(img)
+    for i in range(40):  # stars and a train of satellites
+        x, y = (i * 73) % w, (i * 37) % 110
+        d.point((x, y), fill=(220, 225, 255))
+    for i in range(8):
+        d.ellipse((40 + i * 28, 30 + i * 6, 43 + i * 28, 33 + i * 6), fill=(255, 255, 255))
+    d.polygon([(0, 200), (150, 150), (300, 200), (150, 240)], fill=(95, 98, 104))
+    for cx, cy in ((95, 175), (165, 160), (135, 200), (205, 185)):
+        d.polygon([(cx - 34, cy), (cx + 6, cy - 30), (cx + 40, cy - 14), (cx, cy + 16)], fill=(236, 238, 242), outline=(180, 185, 195))
+    img.save(path)
+
+
 def compile_icons():
     compiled = OUT / 'compiled'
     compiled.mkdir(exist_ok=True)
@@ -80,6 +102,8 @@ def compile_icons():
         source = OUT / 'sources' / (key + '.png')
         if key == 'tictac' and not source.exists():
             paint_tictac(source)
+        if key == 'starlink' and not source.exists():
+            paint_starlink(source)
         # v09: classic RA2 cameo layout. The picture fills the whole icon and the
         # caption sits on it in light capitals with a black outline, no black bar.
         src = Image.open(source).convert('RGB')

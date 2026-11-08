@@ -24,6 +24,9 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*31*/{"SGTICTAC",0xA83CE0,58,58,0},
  /*32*/{"FLAKT",0xA8E348,64,60,1},{"FLAKT",0xA8E348,65,60,1},
  /*34*/{"SGFUSION",0xA83C68,88,44,1},
+ /*35*/{"TANY",0xA8E348,36,66,0},
+ /*36*/{"SGTENT",0xA83C68,38,62,0},{"SNIPE",0xA8E348,37,67,0},{"YURI",0xA8E348,38,67,0},
+ /*39*/{"E1",0xA8E348,39,67,0},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -158,5 +161,10 @@ static void sg_lab_tick(uint32_t f){
   if(f==900)fprintf(stderr,"[v10] heavy tank after tictac attack: %s\n",lab_ptr[20]&&sg_alive(lab_ptr[20])?"alive":"DESTROYED");
   if(f==2200&&lab_ptr[30]&&sg_alive(lab_ptr[30])){sg_remove(lab_ptr[30]);fprintf(stderr,"[v10] f=%u Area 51 removed\n",f);}
   if(f==600)fprintf(stderr,"[v10] fusion %s; enemy power output=%d drain=%d\n",lab_ptr[34]&&sg_alive(lab_ptr[34])?"built":"MISSING",(int)MEM32(houses[1]+0x53A4),(int)MEM32(houses[1]+0x53A8));}
+ /* 15. Garrison: Tanya (newly an Occupier) walks into a Bastion camp tent. */
+ {static uint32_t tent;uint32_t ty=lab_ptr[35];
+  if(f==500&&ty&&sg_alive(ty)){tent=lab_ptr[36]&&sg_alive(lab_ptr[36])?lab_ptr[36]:0;for(int k=37;k<=39&&tent;k++)if(lab_ptr[k]&&sg_alive(lab_ptr[k]))sg_ai_order(lab_ptr[k],tent,7);
+   if(tent){fprintf(stderr,"[v10] Sniper + Yuri ordered into camp tent %08X (%.1f cells)\n",tent,sg_dist(ty,tent));}else fprintf(stderr,"[v10] no camp tent to garrison\n");}
+  if(tent&&f>=560&&f<=1300&&f%60==0)fprintf(stderr,"[v10] f=%u tent %s occupants=%d sniper at (%d,%d) mission %d; GI mission %d at (%d,%d); owner tent=%08X us=%08X\n",f,sg_alive(tent)?"standing":"GONE",sg_alive(tent)?(int)MEM32(tent+0x694):-1,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0x9C)/256:0,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0xA0)/256:0,lab_ptr[37]?(int)MEM32(lab_ptr[37]+0xAC):-1,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0xAC):-1,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0x9C)/256:0,lab_ptr[39]?(int)MEM32(lab_ptr[39]+0xA0)/256:0,sg_alive(tent)?MEM32(tent+0x21C):0,houses[0]);}
  if(f%300==0)fflush(stderr);
 }

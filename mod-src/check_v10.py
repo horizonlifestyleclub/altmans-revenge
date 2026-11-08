@@ -52,4 +52,7 @@ assert (mod / 'sgshahed.vxl').exists() and 'Russians' not in r['SGLINK']['Owner'
 assert r['SGRAVEN']['TechLevel'] == '-1' and r['SGTICTAC']['Image'] == 'SGTICTAC' and r['SGTICTAC']['CanPassiveAquire'] == 'no' and 'SGAREA' in r['SGTICTAC']['Prerequisite']
 assert r['InvisibleLowAA']['AA'] == 'yes' and r['SGTICTACGUN']['Projectile'] == 'InvisibleLowAA' and (mod / 'sgtictac.vxl').exists() and (mod / 'sgtticon.shp').exists()
 assert int(r['SGFUSION']['Power']) >= 50000 and 'Russians' in r['SGFUSION']['Owner'] and r['SGFUSION']['DeathWeapon'] != 'NukePayload'
+assert r['SGSTARLINK']['Image'] == 'GASSL' and a['GASSL']['Image'] == 'GAAIRC' and 'BibShape' not in a['GASSL'] and a['GASSL']['ActiveAnim'] == 'GAAIRC_C' and (mod / 'sgslicon.shp').exists()
+for u in ['SNIPE', 'YURI', 'BORIS', 'FLAKT']:
+    assert r[u]['Occupier'] == 'yes' and r[u]['OccupyWeapon'] in r, u
 print('PASS v10 (+China roster, Starlink/Cyber): visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')

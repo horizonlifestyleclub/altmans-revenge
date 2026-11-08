@@ -541,6 +541,14 @@ static int sg_promote(uint32_t house){
  }
  return promoted;
 }
+/* Native hook (patch_v10_native.py, GadgetClass input walk): a gadget whose
+   "next" link points below the game image is corrupt; end the walk there. */
+static uint32_t sg_gadget_last;
+int sg_gadget_bad(uint32_t g){
+ if(g>=0x400000u&&g<0xF0000000u&&MEM32(g)>=0x400000u&&MEM32(g)<0xC04000u){sg_gadget_last=g;return 0;}
+ static int logged;if(logged++<20){uint32_t pv=sg_gadget_last;fprintf(stderr,"[guard] corrupt gadget link %08X after gadget %08X (vtable %08X, x=%d y=%d w=%d h=%d): input walk stopped\n",g,pv,pv?MEM32(pv):0,pv?(int)MEM32(pv+0xC):0,pv?(int)MEM32(pv+0x10):0,pv?(int)MEM32(pv+0x14):0,pv?(int)MEM32(pv+0x18):0);fflush(stderr);}
+ return 1;
+}
 /* Native hook (patch_v10_native.py, UnitClass::ReceiveDamage): the TIC TAC
    cannot be damaged by anything; it is only lost with its Area 51. */
 void sg_unit_damage(uint32_t u,uint32_t pdamage){
