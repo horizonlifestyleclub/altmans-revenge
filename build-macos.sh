@@ -21,4 +21,7 @@ if [ ! -f "$BUILD_DIR/build.ninja" ]; then
   # shellcheck disable=SC2086  # CMAKE_ARGS is a list of flags
   cmake -S . -B "$BUILD_DIR" -G Ninja -DPCRECOMP="$PCRECOMP" $CMAKE_ARGS
 fi
+# Altman's Revenge / Singularity: its native hooks go into the Yuri's Revenge
+# lift (they do nothing unless that mod is on). Idempotent.
+case "$CMAKE_ARGS" in *RA2_TARGET=game\ *|*RA2_TARGET=game) ;; *) python3 tools/singularity_hooks.py src/recomp/gen ;; esac
 cmake --build "$BUILD_DIR" "$@"

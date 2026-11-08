@@ -9,6 +9,7 @@ game executable and no files of the retail game beyond what the mod itself
 overrides, so players use their own copy of the game.
 """
 from pathlib import Path
+import os
 import shutil
 import sys
 import zipfile
@@ -40,6 +41,24 @@ for name in MODS:
 for rel in BRIDGE:
     (payload / 'llm-bridge' / rel).parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(REPO / 'llm-bridge' / rel, payload / 'llm-bridge' / rel)
+# Sounds: only the mod's own clips; the installer merges them into the
+# player's own sound bank (installer/merge_audio.py).
+sys.path.insert(0, str(REPO / 'installer'))
+import merge_audio
+game = next((g for g in [Path(os.environ.get('RA2_GAME_DIR', '/nonexistent')), REPO / 'game'] + [p / 'game' for p in REPO.parents]
+             if (g / 'langmd.mix').exists() or (g / 'audio.idx').exists()), None)
+if not game:
+    raise SystemExit('Set RA2_GAME_DIR to a Red Alert 2 game folder (for the original sound bank)')
+orig_idx, orig_bag = merge_audio.find_bank(game)
+tmp = out / '.orig'
+tmp.mkdir()
+(tmp / 'audio.idx').write_bytes(orig_idx)
+(tmp / 'audio.bag').write_bytes(orig_bag)
+(payload / 'sounds').mkdir()
+clips, size = merge_audio.make_patch(tmp / 'audio.idx', REPO / 'mods/yr/Singularity/audio.idx', payload / 'sounds/patch.idx')
+shutil.rmtree(tmp)
+print('sounds: %d mod clips (%.1f MB)' % (clips, size / 1e6))
+shutil.copyfile(REPO / 'installer/merge_audio.py', payload / 'merge_audio.py')
 (payload / 'VERSION').write_text(VERSION + '\n')
 for f in (REPO / 'installer/mac').iterdir():
     shutil.copy2(f, out / f.name)

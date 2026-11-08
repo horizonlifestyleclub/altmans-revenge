@@ -1,6 +1,6 @@
 from pathlib import Path
 import shlex,subprocess
-root=Path.cwd();b=root/'outputs/redalert2-recomp/build-macos';work=root/'work/singularity';cmds=(work/'build-commands.txt').read_text().splitlines();obj=str(work/'lab-v06/main-lab.o')
+root=Path.cwd();b=root/'outputs/redalert2-recomp/build-macos';work=root/'work/singularity';cmds=(work/'build-commands.txt').read_text().replace('@WORKSPACE@',str(root)).splitlines();obj=str(work/'lab-v06/main-lab.o')
 compile=shlex.split(next(c for c in cmds if ' -c ' in c and '/src/linux/main.c' in c))
 compile[compile.index('-o')+1]=obj;compile[compile.index('-MF')+1]=obj+'.d';compile+=['-DSG_DRONE_LAB=1']
 subprocess.run(compile,cwd=b,check=True)

@@ -53,11 +53,16 @@ if [ -z "$EXE" ]; then
 fi
 ROOT="$(cd "$(dirname "$EXE")/.." && pwd)"
 echo "Game build: $EXE"
-case "$(basename "$EXE")" in ra2-singularity) ;; *)
-  echo "Note: drones, kamikaze units and the Qwen Commander need the Singularity build"
-  echo "      (ra2-singularity, from the ra2-singularity repository). With a plain ra2 build"
-  echo "      the new rules load but those runtime features stay off.";;
-esac
+if ! grep -aq "Run the Altman's Revenge installer" "$EXE"; then
+  echo "Note: this game build is older than Altman's Revenge, so drones, kamikaze units"
+  echo "      and the Qwen Commander stay off. Update and rebuild the recomp (run its"
+  echo "      setup again) and they switch on; the rest of the mod works now."
+fi
+GAME="$ROOT/game"; [ -d "$GAME" ] || GAME=""
+if [ -z "$GAME" ] || ! ls "$GAME" | grep -iqxE 'langmd\.mix|audio\.idx'; then
+  read -r -p "Red Alert 2 game folder (with langmd.mix; Enter to skip the new sounds): " GAME
+  GAME="${GAME%\'}"; GAME="${GAME#\'}"; GAME="${GAME% }"
+fi
 
 # ---- install, moving foreign folders aside ----
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -70,7 +75,14 @@ place() { # $1 payload path, $2 destination
   mkdir -p "$(dirname "$dst")"; cp -R "$src" "$dst"; echo "$VERSION" > "$dst/.altmans-revenge"
 }
 echo; echo "Installing into $ROOT"
-for m in "$PAYLOAD"/mods/yr/*/; do m="${m%/}"; place "$m" "$ROOT/mods/yr/$(basename "$m")"; echo "  mods/yr/$(basename "$m")"; done
+for m in "$PAYLOAD"/mods/yr/*/; do m="${m%/}"; place "$m" "$ROOT/mods/yr/$(basename "$m")"; echo "  mods/yr/$(basename "$m")"
+  # the mod's new sounds, merged into your own copy of the game's sound bank
+  if [ -n "$GAME" ] && command -v python3 >/dev/null; then
+    python3 "$PAYLOAD/merge_audio.py" "$GAME" "$PAYLOAD/sounds/patch.idx" "$ROOT/mods/yr/$(basename "$m")" | sed 's/^/    /' ||
+      echo "    (new sounds skipped: the game plays its own)"
+  fi
+done
+[ -n "$GAME" ] && command -v python3 >/dev/null || echo "  (new sounds skipped: needs python3 and your game folder; the game plays its own sounds)"
 # The commander keeps what it learned (memory/) across reinstalls.
 if [ -d "$ROOT/llm-bridge/memory" ] && [ -f "$ROOT/llm-bridge/.altmans-revenge" ]; then
   mv "$ROOT/llm-bridge/memory" "$ROOT/.ar-memory-$STAMP"; place "$PAYLOAD/llm-bridge" "$ROOT/llm-bridge"

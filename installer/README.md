@@ -48,5 +48,6 @@ original. If a folder with one of those names already exists, it is kept as
 |---|---|---|
 | Installer | yes | yes |
 | New rules, units, AI profiles | yes | yes |
-| Native Singularity runtime (drone control, kamikaze clean-up, Singularity research) | yes, with the Singularity build | not yet |
+| New sounds (merged into your own copy of the game's sound bank) | yes | yes |
+| Native Singularity runtime (drone control, kamikaze clean-up, Singularity research) | yes (any build of this version) | not yet |
 | Qwen Commander | yes | not yet (needs the runtime) |

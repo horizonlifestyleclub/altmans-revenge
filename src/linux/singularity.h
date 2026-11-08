@@ -566,10 +566,10 @@ void sg_building_damage(uint32_t b,uint32_t pdamage,uint32_t wh){
 
 #include "adaptive_ai.h"
 #ifdef SG_V07_LAB
-#include "@WORKSPACE@/work/singularity/lab_v07.h"
+#include "../../mod-src/lab_v07.h"
 #endif
 #ifdef SG_DRONE_LAB
-#include "@WORKSPACE@/work/singularity/drone_lab_v06.h"
+#include "../../mod-src/drone_lab_v06.h"
 #endif
 /* v09 Singularity effects (owner ACTIVE): random enemy grid outages of 10 s to
    2 min with an on-screen countdown, vehicle/aircraft prices down 10% every
