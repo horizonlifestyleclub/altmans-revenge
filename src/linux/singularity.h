@@ -38,7 +38,7 @@ static const char *sg_id(uint32_t p,int building) {
     return (const char*)hle_ptr(t+0x24);
 }
 static SGHouse *sg_house(uint32_t p) { for(int i=0;i<32;i++)if(sg_houses[i].ptr==p)return &sg_houses[i];return NULL; }
-static int sg_on(void){return (!strcmp(mods_active(),"Singularity")||!strcmp(mods_active(),"Singularity - Adaptive")) && MEM32(0xA8B238)==5;}
+static int sg_on(void){return (!strcmp(mods_active(),"Singularity")||!strcmp(mods_active(),"Singularity - Adaptive")||!strcmp(mods_active(),"Singularity - Brutal Plus")) && MEM32(0xA8B238)==5;}
 int sg_power(uint32_t b,int base){if(!sg_on())return base;SGHouse*s=sg_house(MEM32(b+0x21C));if(!s||strcmp(sg_id(b,1),"SGBATT")||!s->batteries)return base;return base+s->battery_output/s->batteries;}
 int sg_drain(uint32_t b,int base){if(!sg_on())return base;SGHouse*s=sg_house(MEM32(b+0x21C));return base+(s&&s->level>0&&!strcmp(sg_id(b,1),"SGCOLO")?400:0)+(s&&s->cyber&&s->sink==b?100000:0);}
 static double sg_dist(uint32_t a,uint32_t b){double dx=(int32_t)MEM32(a+0x9C)-(int32_t)MEM32(b+0x9C),dy=(int32_t)MEM32(a+0xA0)-(int32_t)MEM32(b+0xA0);return sqrt(dx*dx+dy*dy)/256.;}
@@ -568,7 +568,7 @@ static SGHouse*sg_pick_enemy(SGHouse*a,int hn){
  SGHouse*c[32];int k=0;for(int j=0;j<hn;j++){SGHouse*t=&sg_houses[j];uint32_t ty=MEM32(t->ptr+0x34);if(t!=a&&sg_enemy(a->ptr,t->ptr)&&ty>0x10000&&strcmp((const char*)hle_ptr(ty+0x24),"Neutral")&&strcmp((const char*)hle_ptr(ty+0x24),"Special"))c[k++]=t;}
  return k?c[sg_rand(k)]:NULL;
 }
-static int sg_ai_controlled(uint32_t h){uint32_t ty=MEM32(h+0x34);return h!=MEM32(0xA83D4C)&&ty>0x10000&&!MEM8(ty+0x1A6)&&strcmp((const char*)hle_ptr(ty+0x24),"Neutral")&&strcmp((const char*)hle_ptr(ty+0x24),"Special")&&!sg_ai_mode();}
+static int sg_ai_controlled(uint32_t h){uint32_t ty=MEM32(h+0x34);return h!=MEM32(0xA83D4C)&&ty>0x10000&&!MEM8(ty+0x1A6)&&strcmp((const char*)hle_ptr(ty+0x24),"Neutral")&&strcmp((const char*)hle_ptr(ty+0x24),"Special")&&!sg_ai_mode()&&!sg_bp_house(h);}
 static int sg_civilian_role(const char*id){if(sg_opdrone(id))return 1;static const char*skip[]={"HARV","CMIN","SMIN","AMCV","SMCV","PCV","ENGINEER","SENGINEER","YENGINEER","SPY","SLAV","SGPDRONE","DRON","LCRF","SAPC","ZEP",NULL};for(int i=0;skip[i];i++)if(!strcmp(id,skip[i]))return 1;return 0;}
 static void sg_outage_timer(uint32_t house,int frames,int on){
  uint32_t sw=sg_super(house,"SGOUTAGE");if(!sw)return;
