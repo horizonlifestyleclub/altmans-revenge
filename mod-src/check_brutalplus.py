@@ -53,7 +53,7 @@ for tid, line in trig:
     sides[int(f[12])].add(kind)
 for side, kinds in sides.items():
     assert {'BPP', 'BPT', 'BPD'} <= kinds, (side, kinds)
-for u in ['SGLINK', 'SGOP', 'SGTANK', 'SGLOCUST', 'SGB2']:
+for u in ['SGLINK', 'SGOP', 'SGTANK', 'SGSHAHED', 'SGB2']:
     assert u in used, 'new unit not used: ' + u
 for b in ['SGFACT', 'SGJAM', 'SGAEGIS', 'SGCOLO', 'SGNODE1']:
     assert r[b].get('AIBuildThis') == 'yes', b
@@ -64,6 +64,6 @@ for p in mod.iterdir():
         assert p.resolve().is_relative_to(repo.resolve()), ('link leaves checkout', p.name)
         assert p.exists(), ('broken link', p.name)
 hdr = (repo / 'src/linux/adaptive_bp_data.h').read_text()
-assert '"SGCOLO"' in hdr and '"SGNODE5"' in hdr
+assert '"SGCOLO"' in hdr and '"SGNODE3"' in hdr
 print('Brutal Plus checks passed: %d triggers, %d teams, %d task forces; new units used: %s'
       % (len(trig), len(teams), len(tfs), ', '.join(sorted(u for u in used if u.startswith('SG')))))

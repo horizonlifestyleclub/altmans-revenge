@@ -99,11 +99,15 @@ static int sg_bp_defend(SGBPBrain*b){
  * nearest free units go after the attacker. Badly hurt -> fall back home.
  * In an assault, focus the weakest enemy unit in reach; anti-air goes for
  * aircraft first. */
-static int sg_bp_is_aa(const char*id){return !strcmp(id,"HTK")||!strcmp(id,"FV")||!strcmp(id,"FLAKT")||!strcmp(id,"GGI")||!strcmp(id,"SGAEGIS");}
+/* Rifle infantry (E1/E2) can shoot drones on this branch. */
+static int sg_bp_is_aa(const char*id){return !strcmp(id,"HTK")||!strcmp(id,"FV")||!strcmp(id,"FLAKT")||!strcmp(id,"GGI")||!strcmp(id,"SGAEGIS")||!strcmp(id,"E1")||!strcmp(id,"E2");}
+/* Drones fly as jumpjet vehicles, so treat them as air targets explicitly. */
+static int sg_bp_is_drone(const char*id){return sg_opdrone(id)||!strcmp(id,"SGSHAHED")||!strcmp(id,"SGLOCUST");}
+static int sg_bp_airborne(uint32_t q){return MEM32(q)==0x7E22A4||MEM8(q+0x134)||sg_bp_is_drone(sg_ai_id(q));}
 static uint32_t sg_bp_nearest_enemy(uint32_t h,uint32_t at,double range,int want_air,int units_only){
  uint32_t best=0;double bd=range;
  for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t q=sg_vec_at(0xA8EC78,i);uint32_t vt=MEM32(q);if(!sg_alive(q)||!sg_enemy(h,MEM32(q+0x21C)))continue;
-  int air=vt==0x7E22A4||MEM8(q+0x134);if(want_air>=0&&air!=want_air)continue;if(units_only&&vt==0x7E3EBC)continue;
+  int air=sg_bp_airborne(q);if(want_air>=0&&air!=want_air)continue;if(units_only&&vt==0x7E3EBC)continue;
   if(vt!=0x7F5C70&&vt!=0x7EB058&&vt!=0x7E22A4&&vt!=0x7E3EBC)continue;double d=sg_dist(at,q);if(d<bd){bd=d;best=q;}}
  return best;
 }
@@ -186,7 +190,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
   int near=0;for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(!sg_alive(p))continue;double dx=(int32_t)MEM32(p+0x9C)-px,dy=(int32_t)MEM32(p+0xA0)-py;if(dx*dx+dy*dy<8.*8*256*256)near++;}
   if(near*10>=alive*6||f-b->state_since>1350){
    for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(!sg_alive(p))continue;
-    if(!strcmp(sg_ai_id(p),"SGTANK")){SGUnit*u=sg_state(p);if(u)u->nest_active=1;}
+    if(!strcmp(sg_ai_id(p),"SGTANK")||!strcmp(sg_ai_id(p),"SGTANKC")){sg_bp_order(p,0,16);continue;} /* Bastion/HIVE: deploy the drone nest at the target */
     sg_bp_order(p,0,15);}
    b->state=SG_BP_ASSAULT;b->state_since=f;
    fprintf(stderr,"[brutalplus] house=%d wave %d ASSAULT with %d units ($%d)\n",MEM32(h+0x30),b->waves,alive,value);
@@ -194,7 +198,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
  }
  /* Pull back as a group instead of feeding units in one at a time. */
  if(value*10<b->launch_value*3||f-b->state_since>6000||!alive){
-  for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(!sg_alive(p))continue;if(!strcmp(sg_ai_id(p),"SGTANK")){SGUnit*u=sg_state(p);if(u)u->nest_active=0;}sg_bp_move(p,b->sx,b->sy);}
+  for(int i=0;i<b->wn;i++){uint32_t p=b->wave[i];if(!sg_alive(p))continue;sg_bp_move(p,b->sx,b->sy);}
   fprintf(stderr,"[brutalplus] house=%d wave %d over: %d units ($%d of $%d) regrouping\n",MEM32(h+0x30),b->waves,alive,value,b->launch_value);
   b->wn=0;b->state=SG_BP_GATHER;b->state_since=f;b->target=0;
  }
@@ -220,8 +224,8 @@ static const char*sg_bp_next_building(uint32_t h,uint32_t f){
  if(sg_bp_eligible(h,"SGJAM")&&sg_ai_count(h,"SGJAM")<(drones>3?3:1)&&minutes>=5)return "SGJAM";
  if(sg_bp_eligible(h,"SGAEGIS")&&sg_ai_count(h,"SGAEGIS")<(drones>3?3:1)&&minutes>=6)return "SGAEGIS";
  if(minutes>=8&&credits>=1500){
-  static const char*nodes[]={"SGNODE1","SGNODE2","SGNODE3","SGNODE4","SGNODE5"};
-  for(int k=0;k<5;k++)if(!sg_ai_count(h,nodes[k])){if(sg_bp_eligible(h,nodes[k]))return nodes[k];break;}
+  static const char*nodes[]={"SGNODE1","SGNODE2","SGNODE3"};
+  for(int k=0;k<3;k++)if(!sg_ai_count(h,nodes[k])){if(sg_bp_eligible(h,nodes[k]))return nodes[k];break;}
   if(!sg_ai_count(h,"SGCOLO")&&sg_bp_eligible(h,"SGCOLO")&&credits>=4000)return "SGCOLO";
  }
  return NULL;
@@ -251,7 +255,7 @@ static void sg_bp_plan(SGBPBrain*b,uint32_t f){
 static void sg_bp_enemy_mix(uint32_t h,int*air,int*inf,int*armor,int*defs){
  *air=*inf=*armor=*defs=0;
  for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t q=sg_vec_at(0xA8EC78,i);if(!sg_alive(q)||!sg_enemy(h,MEM32(q+0x21C)))continue;uint32_t vt=MEM32(q);
-  if(vt==0x7E22A4||MEM8(q+0x134))(*air)++;else if(vt==0x7EB058)(*inf)++;else if(vt==0x7F5C70)(*armor)++;}
+  if(sg_bp_airborne(q))(*air)++;else if(vt==0x7EB058)(*inf)++;else if(vt==0x7F5C70)(*armor)++;}
  for(int i=0;i<sg_vec_count(0xA8EB40);i++){uint32_t q=sg_vec_at(0xA8EB40,i);if(!sg_alive(q)||!sg_enemy(h,MEM32(q+0x21C)))continue;const char*id=sg_ai_id(q);
   if(!strcmp(id,"GAPILL")||!strcmp(id,"NALASR")||!strcmp(id,"TESLA")||!strcmp(id,"ATESLA")||!strcmp(id,"GAPRSM")||!strcmp(id,"NABNKR")||!strcmp(id,"YAGGUN")||!strcmp(id,"GATSEN"))(*defs)++;}
 }
@@ -260,9 +264,9 @@ static const char*sg_bp_pick_unit(uint32_t h,int infantry,unsigned turn){
  const char*c[8];int n=0;
 #define BP_TRY(id) do{if(n<8&&sg_bp_eligible(h,id))c[n++]=id;}while(0)
  if(!infantry){
-  if(side==1){BP_TRY("HTNK");BP_TRY("HTNK");if(air>2)BP_TRY("HTK");if(inf>armor+4)BP_TRY("HTK");if(defs>4)BP_TRY("V3");BP_TRY("APOC");BP_TRY("SGLOCUST");}
+  if(side==1){BP_TRY("HTNK");BP_TRY("HTNK");if(air>2)BP_TRY("HTK");if(inf>armor+4)BP_TRY("HTK");if(defs>4)BP_TRY("V3");BP_TRY("APOC");BP_TRY("SGSHAHED");BP_TRY("SGTANKC");}
   else if(side==2){BP_TRY("LTNK");BP_TRY("YTNK");if(air>2)BP_TRY("YTNK");BP_TRY("LTNK");}
-  else{BP_TRY("MTNK");BP_TRY("MTNK");if(air>2||inf>armor+4)BP_TRY("FV");BP_TRY("SREF");BP_TRY("SGTANK");if(armor>6)BP_TRY("TNKD");BP_TRY("FV");}
+  else{BP_TRY("MTNK");BP_TRY("MTNK");if(air>2||inf>armor+4)BP_TRY("FV");BP_TRY("SREF");BP_TRY("SGTANK");BP_TRY("SGEMPT");if(armor>6)BP_TRY("TNKD");BP_TRY("FV");}
  }else{
   if(side==1){BP_TRY("E2");if(air>2)BP_TRY("FLAKT");BP_TRY("FLAKT");BP_TRY("SGOP");}
   else if(side==2){BP_TRY("INIT");BP_TRY("BRUTE");}

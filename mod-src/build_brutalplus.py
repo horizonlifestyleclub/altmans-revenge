@@ -77,9 +77,9 @@ for k in CLASSIC_ARRAYS:
     new[2] = old.split(',')[0]
     r['General'][k] = ','.join(new)
 r['Difficult'] = dict(stock['Easy'])
-SG_BUILDINGS = ['SGFACT', 'SGJAM', 'SGAEGIS', 'SGCOLO'] + ['SGNODE%d' % i for i in range(1, 6)]
+SG_BUILDINGS = ['SGFACT', 'SGJAM', 'SGAEGIS', 'SGCOLO'] + ['SGNODE%d' % i for i in range(1, 4)]  # China: 3 nodes on v10
 PLANNED = SG_BUILDINGS + ['GAWEAP', 'NAWEAP', 'YAWEAP', 'GAPILE', 'NAHAND', 'YABRCK']   # runtime eligibility table
-PLANNED += ['HTNK', 'HTK', 'V3', 'APOC', 'SGLOCUST', 'LTNK', 'YTNK', 'MTNK', 'FV', 'SREF', 'SGTANK', 'TNKD',
+PLANNED += ['HTNK', 'HTK', 'V3', 'APOC', 'SGSHAHED', 'SGTANKC', 'SGEMPT', 'LTNK', 'YTNK', 'MTNK', 'FV', 'SREF', 'SGTANK', 'TNKD',
             'E2', 'FLAKT', 'SGOP', 'INIT', 'BRUTE', 'E1', 'GGI', 'SGLINK']   # idle-factory army units
 for b in SG_BUILDINGS:
     if b in r:
@@ -182,7 +182,7 @@ team('BPP_S1', 'BP Soviet early mix', [(3, 'HTNK'), (1, 'HTK'), (4, 'E2')], 'BPS
 team('BPP_S2', 'BP Soviet mid mix', [(3, 'HTNK'), (2, 'V3'), (1, 'HTK'), (2, 'FLAKT')], 'BPS_POOL', max_=3)
 team('BPP_S3', 'BP Soviet late mix', [(2, 'APOC'), (2, 'HTNK'), (2, 'HTK'), (1, 'V3')], 'BPS_POOL', max_=3)
 team('BPP_SOP', 'BP drone-nest operators', [(2, 'SGOP'), (4, 'E2'), (1, 'FLAKT')], 'BPS_POOL', max_=2)
-team('BPP_SLOC', 'BP Locust swarm', [(4, 'SGLOCUST'), (2, 'HTNK')], 'BPS_POOL', max_=2)
+team('BPP_SLOC', 'BP Shahed swarm', [(4, 'SGSHAHED'), (2, 'HTNK')], 'BPS_POOL', max_=2)
 team('BPP_SCAA', 'BP Soviet anti-air answer', [(3, 'HTK'), (3, 'FLAKT')], 'BPS_POOL', max_=2)
 team('BPP_SCAR', 'BP Soviet anti-armour answer', [(2, 'APOC'), (2, 'HTNK')], 'BPS_POOL', max_=2)
 team('BPP_SCDF', 'BP Soviet siege answer', [(3, 'V3'), (2, 'HTNK')], 'BPS_POOL', max_=2)
