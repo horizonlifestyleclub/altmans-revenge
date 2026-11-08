@@ -149,7 +149,8 @@ def end_of_match(run, decisions):
             rows.append(json.loads(x))
         except ValueError:
             pass  # a half-written or damaged line
-    if len(rows) < 10:
+    if len(rows) < 100:   # under ~5 minutes: nothing worth learning from
+        print('[commander] match too short to learn from', flush=True)
         return
     last = rows[-1]
     peak = max(rows, key=lambda r: r['army']['value'])

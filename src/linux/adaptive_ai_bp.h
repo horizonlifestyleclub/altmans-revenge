@@ -308,11 +308,14 @@ static void sg_bp_tick(uint32_t f){
   int houses=0;for(int i=0;i<sg_vec_count(0xA80228);i++){uint32_t h=sg_vec_at(0xA80228,i);if(MEM32(h+0x34)>0x10000&&!MEM8(MEM32(h+0x34)+0x1A6)){houses++;
    fprintf(stderr,"[brutalplus] player house=%d %s difficulty=%d human=%d brutalplus=%d allies=%08X\n",MEM32(h+0x30),(const char*)hle_ptr(MEM32(h+0x34)+0x24),(int32_t)MEM32(h+0x184),h==MEM32(0xA83D4C),sg_bp_house(h),MEM32(h+0x5788));}}
   fprintf(stderr,"[brutalplus] map %s, %d player houses\n",mapname,houses);}
- static int autodeploy=-1;if(autodeploy<0)autodeploy=getenv("SG_BP_AUTODEPLOY")!=NULL;
+ /* Test switches apply to the first match only: a new game started from the
+    menu in the same window is a normal game again. */
+ static uint32_t prev_frame;static int matches;if(f<prev_frame)matches++;prev_frame=f;
+ static int autodeploy=-1;if(autodeploy<0)autodeploy=getenv("SG_BP_AUTODEPLOY")!=NULL;if(matches)autodeploy=0;
  if(autodeploy&&f%90==0)for(int i=0;i<sg_vec_count(0xA8EC78);i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(sg_alive(p)&&MEM32(p+0x21C)==MEM32(0xA83D4C)&&strstr(sg_ai_id(p),"MCV")&&MEM32(p+0xAC)!=16){sg_ai_order(p,0,16);fprintf(stderr,"[brutalplus] test: deploying the player's %s\n",sg_ai_id(p));}}
  /* Spectator playtests only (SG_BP_SPECTATE=1): the human is allied with every
     AI, so the AIs fight each other (Brutal Plus vs Classic Brutal). */
- static int spectate=-1;if(spectate<0)spectate=getenv("SG_BP_SPECTATE")!=NULL;
+ static int spectate=-1;if(spectate<0)spectate=getenv("SG_BP_SPECTATE")!=NULL;if(matches)spectate=0;
  if(spectate&&f%90==0){uint32_t me=MEM32(0xA83D4C);int mi=MEM32(me+0x30);
   for(int i=0;i<sg_vec_count(0xA80228);i++){uint32_t h=sg_vec_at(0xA80228,i);if(h==me||MEM32(h+0x34)<0x10000||MEM8(MEM32(h+0x34)+0x1A6))continue;int ix=MEM32(h+0x30);if(ix<0||ix>31||mi<0||mi>31)continue;
    for(int j=0;j<sg_vec_count(0xA80228);j++){uint32_t o=sg_vec_at(0xA80228,j);int oi=MEM32(o+0x30);if(o==me||o==h||MEM32(o+0x34)<0x10000||MEM8(MEM32(o+0x34)+0x1A6)||oi<0||oi>31)continue;

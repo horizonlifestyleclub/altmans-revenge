@@ -44,6 +44,8 @@ if __name__ == '__main__':
     text = ini.read_text(encoding='cp1252')
     # Slot codes: 4 hardest AI (Brutal Plus), 5 medium (Brutal Plus Veteran), 6 easy slot (Classic Brutal).
     text = re.sub(r'(?m)^Slot01=.*$', 'Slot01=4,%d,-2' % args.enemy, text, count=1)
+    if not args.versus and not args.smoke_test:   # a normal game: the usual 10 starting units
+        text = re.sub(r'(?m)^UnitCount=.*$', 'UnitCount=10', text, count=1)
     if args.versus:
         shutil.copyfile(VERSUS_MAP, scene)
         text = re.sub(r'(?m)^Slot02=.*$', 'Slot02=6,%d,-2' % args.classic, text, count=1)
