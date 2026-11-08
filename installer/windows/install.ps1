@@ -58,6 +58,11 @@ Write-Host "Game build: $Exe"
 Write-Host "Note: on Windows the new rules, units and AI profiles load, but the native"
 Write-Host "      Singularity runtime (drone control, kamikaze clean-up, Qwen Commander)"
 Write-Host "      is only built for macOS and Linux so far."
+$Game = Join-Path $Root "game"
+if (-not ((Test-Path "$Game\langmd.mix") -or (Test-Path "$Game\audio.idx"))) {
+  $Game = (Read-Host "Red Alert 2 game folder (with langmd.mix; Enter to skip the new sounds)").Trim('"', ' ')
+}
+function Find-Python { foreach ($c in @("py", "python", "python3")) { $g = Get-Command $c -ErrorAction SilentlyContinue; if ($g) { return $g.Source } }; return $null }
 
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 function Place($src, $dst) {
@@ -70,7 +75,13 @@ function Place($src, $dst) {
   Set-Content -Path "$dst\.altmans-revenge" -Value $Version
 }
 Write-Host ""; Write-Host "Installing into $Root"
-foreach ($m in Get-ChildItem -Directory "$Payload\mods\yr") { Place $m.FullName (Join-Path $Root "mods\yr\$($m.Name)"); Write-Host "  mods\yr\$($m.Name)" }
+$Py = Find-Python
+foreach ($m in Get-ChildItem -Directory "$Payload\mods\yr") {
+  $dst = Join-Path $Root "mods\yr\$($m.Name)"; Place $m.FullName $dst; Write-Host "  mods\yr\$($m.Name)"
+  # the mod's new sounds, merged into your own copy of the game's sound bank
+  if ($Game -and $Py) { & $Py "$Payload\merge_audio.py" $Game "$Payload\sounds\patch.idx" $dst | ForEach-Object { "    $_" } }
+}
+if (-not ($Game -and $Py)) { Write-Host "  (new sounds skipped: needs Python 3 and your game folder; the game plays its own sounds)" }
 $lb = Join-Path $Root "llm-bridge"
 if ((Test-Path "$lb\.altmans-revenge") -and (Test-Path "$lb\memory")) {   # keep what the commander learned
   $keep = Join-Path $Root ".ar-memory-$Stamp"; Move-Item "$lb\memory" $keep

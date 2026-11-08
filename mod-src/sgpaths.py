@@ -66,6 +66,7 @@ def _build_root():
 
 def fix_cmd(cmd):
     """build-commands.txt was recorded in the main repo; retarget a command line."""
+    cmd = cmd.replace('@WORKSPACE@', str(WORKSPACE))   # stored without anyone's home folder
     return cmd.replace(str(MAIN_REPO), str(REPO))
 
 

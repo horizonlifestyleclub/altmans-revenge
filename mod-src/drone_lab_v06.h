@@ -1,6 +1,6 @@
 /* Isolated test-only runtime fixture. Never enabled in the installed build. */
 static void sg_lab_fail(const char *why){fprintf(stderr,"[drone-lab] FAIL %s\n",why);fflush(stderr);_exit(6);}
-#include "@WORKSPACE@/work/singularity/drone_fire_lab.h"
+#include "drone_fire_lab.h"
 static int sg_lab_alive(SGUnit*u){int n=0;for(int j=0;j<5;j++)if(u->children[j]&&sg_alive(u->children[j])&&MEM32(u->children[j]+0x10)==u->child_uid[j])n++;return n;}
 static void sg_drone_lab(uint32_t f){
  static uint32_t pilot,tank,old;static int stage,reported;
