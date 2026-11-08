@@ -138,7 +138,7 @@ int sg_ai_production(uint32_t h,int category){
   else if(b->air>2)id=sov?"HTK":"FV";
   else if(b->infantry>b->armor+3)id=sov?"HTK":"FV";
   else if(b->staticdef>5&&b->turn%3==0)id=sov?"V3":"SREF";
-  else if(b->turn%7==0)id=sov?"SGLOCUST":"SGTANK";
+  else if(b->turn%7==0)id=sov?"SGSHAHED":"SGTANK";
   else id=sov?"HTNK":"MTNK";
   sg_ai_choose(h,0xA83CE0,0x5650,id);
   if((int32_t)MEM32(h+0x5650)<0)sg_ai_choose(h,0xA83CE0,0x5650,sov?"HTNK":"MTNK");
@@ -174,7 +174,7 @@ static void sg_ai_tick(uint32_t f){
    /* Rotate through units rather than issuing unlimited simultaneous orders. */
    if((MEM32(p+0x10)+b->turn)%3)continue;
    if(strstr(id,"ENGINEER")){if(bridge){sg_ai_order(p,bridge,8);orders++;snprintf(b->report,sizeof b->report,"Engineer dispatched to a discovered broken bridge.");}continue;}
-   if(!strcmp(id,"SGTANK")){SGUnit*u=sg_state(p);if(u)u->nest_active=contactCount>0;}
+   if((!strcmp(id,"SGTANK")||!strcmp(id,"SGTANKC"))&&contactCount>0&&MEM32(p+0xAC)!=16)sg_ai_order(p,0,16); /* deploy the drone nest when enemies are around */
    uint32_t best=0;double score=-1e20;int x=MEM32(p+0x9C),y=MEM32(p+0xA0);
    for(int j=0;j<256;j++){SGAIContact*c=&b->contacts[j];if(c->seen!=f)continue;if(c->kind==0&&strcmp(id,"HTK")&&strcmp(id,"FV")&&strcmp(id,"GGI")&&strcmp(id,"FLAKT")&&strcmp(id,"SGINT"))continue;uint32_t t=c->ptr;if(!sg_ai_visible(h,t)||MEM32(t+0x10)!=c->uid)continue;double dx=c->x-x,dy=c->y-y;double s=-sqrt(dx*dx+dy*dy);if(!strcmp(c->id,"HARV")||!strcmp(c->id,"CMIN"))s+=700;if(s>score){score=s;best=t;}}
    if(best){
