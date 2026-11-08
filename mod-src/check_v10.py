@@ -42,4 +42,10 @@ assert r['SGFPV']['Cost'] == '30' and r['SGFPVC']['Cost'] == '20' and 'SGUPLINK'
 assert int(r['SGFPVC']['Strength']) <= 0.65 * int(r['SGFPV']['Strength']) + 1
 assert r['SGEMPT']['Owner'] and int(r['SGDRONEGUN']['Damage']) <= 12
 assert 'IsSimpleDeployer' not in r['SGTANK']
-print('PASS v10: visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')
+# China roster, map darkening.
+assert r['SGFACT']['Cost'] == '500' and r['SGSHAHED']['Cost'] == '300' and r['SGSHAHEDHIT']['Suicide'] == 'no' and int(r['SGSHAHEDHIT']['Damage']) >= 750
+assert r['SGTANKC']['Owner'] == 'Russians' and 'SGFACT' in r['SGTANKC']['Prerequisite'] and r['SGLOCUST']['TechLevel'] == '-1'
+assert r['SGNEEDLE']['Primary'] == 'SGNEEDLEHITV' and r['SGNEEDLEHITV']['Suicide'] == 'no'
+assert r['SGSTARLINK']['GapGenerator'] == 'yes' and r['SGCYBER']['GapGenerator'] == 'yes' and r['SGCYBER']['Owner'] == 'Russians'
+assert (mod / 'sgshahed.vxl').exists() and 'Russians' not in r['SGLINK']['Owner']
+print('PASS v10 (+China roster, Starlink/Cyber): visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')

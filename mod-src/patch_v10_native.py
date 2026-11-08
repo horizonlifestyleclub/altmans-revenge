@@ -19,3 +19,7 @@ before('recomp_0046.c','    /* cmp eax, 0xFu */ /* 0x006F6843: cmp eax, 0xf */',
 for file,va in [('recomp_0046.c','006FCDB0'),('recomp_0018.c','0051B1F0')]:
  entry(file,va,'drone-only infantry AA','{ extern int sg_aa_target_allowed(uint32_t,uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); int ok=sg_aa_target_allowed(ecx,MEM32(esp+4)); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); if(!ok)MEM32(esp+4)=0; }')
 print('v10 native patches applied')
+# TechnoClass "can generate a gap" virtual (0x701190) is always false for
+# units; the Cyber Warfare Unit is a mobile gap generator.
+entry('recomp_0047.c','00701190','mobile gap unit','{ extern int sg_gap_unit(uint32_t); RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); int g=sg_gap_unit(ecx); RECOMP_REGS_IN(); RECOMP_FLAGS_IN(); if(g){SET_LO8(eax,1);RECOMP_FLAGS_OUT();esp+=4;RECOMP_REGS_OUT();return;} }')
+print('v10 mobile gap patch applied')

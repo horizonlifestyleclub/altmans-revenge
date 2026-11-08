@@ -162,3 +162,16 @@ add('SGFIBREC','SGFIBRE','VehicleTypes','Light fibre drone',Strength='40',
 r['SGSHAHEDHIT']['Suicide']='no'
 add('SGNEEDLEHITV','SGNEEDLEHIT',None,None,Suicide='no')
 r['SGNEEDLE'].update(Primary='SGNEEDLEHITV',ElitePrimary='SGNEEDLEHITV')
+
+# ---- Map darkening: Starlink (Allies) and Cyber Warfare Unit (China) ----
+# Both use the engine's gap generator (shroud over enemy maps); the runtime
+# grows the shroud radius over time so the enemy map darkens slowly.
+add('SGSTARLINK','GAGAP','BuildingTypes','Starlink Uplink',Image='GASPST',Owner=ALLIES,RequiredHouses='',ForbiddenHouses='',
+    Prerequisite='GATECH,GACNST',Cost='2500',Power='-150',TechLevel='8',GapGenerator='yes',GapRadiusInCells='8',SuperGapRadiusInCells='8',
+    SpySat='no',AIBuildThis='no',BuildLimit='1')
+labels['Name:SGSTARLINK']='Starlink Uplink (slowly darkens the enemy map)'
+add('SGCYBER','MTNK','VehicleTypes','Cyber Warfare Unit',Image='PROPA',Owner=CN,RequiredHouses=CN,ForbiddenHouses='',
+    Prerequisite='NAWEAP,NARADR',Cost='1800',Strength='300',Speed='6',TechLevel='7',GapGenerator='yes',GapRadiusInCells='5',SuperGapRadiusInCells='5',
+    Primary='',ElitePrimary='',Secondary='',EliteSecondary='',CanPassiveAquire='no',AIBuildThis='no',Turret='no',DeathWeapon='',Crusher='no')
+labels['Name:SGCYBER']='Cyber Warfare Unit (mobile: slowly darkens the enemy map)'
+a['PROPA']['Cameo']=a.get('TRUCKA',{}).get('Cameo','TRKAICON');a['PROPA']['AltCameo']=a['PROPA']['Cameo']

@@ -18,6 +18,8 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  /*25*/{"SGEMPT",0xA83CE0,64,66,1},
  /*26*/{"SGTANKC",0xA83CE0,76,50,1},
  /*27*/{"SGSHAHED",0xA83CE0,24,70,1},
+ /*28*/{"SGSTARLINK",0xA83C68,82,40,1},
+ /*29*/{"SGCYBER",0xA83CE0,78,44,1},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -134,6 +136,9 @@ static void sg_lab_tick(uint32_t f){
   fprintf(stderr,"[v10] HIVE type=%s deployed=%d drones=%d (%s)\n",sg_id(lab_ptr[26],0),MEM8(lab_ptr[26]+0x6E0),n,t);}
  if(f==300&&lab_ptr[27]&&sg_alive(lab_ptr[27])&&lab_ptr[1]&&sg_alive(lab_ptr[1])){sg_ai_order(lab_ptr[27],lab_ptr[1],1);fprintf(stderr,"[v10] Shahed ordered on power plant hp=%d, %.1f cells\n",(int)MEM32(lab_ptr[1]+0x6C),sg_dist(lab_ptr[27],lab_ptr[1]));}
  if(f%60==0&&f>300&&f<=900&&lab_ptr[1])fprintf(stderr,"[v10] f=%u power plant %s hp=%d; shahed %s\n",f,sg_alive(lab_ptr[1])?"alive":"DESTROYED",sg_alive(lab_ptr[1])?(int)MEM32(lab_ptr[1]+0x6C):0,lab_ptr[27]&&sg_alive(lab_ptr[27])?"flying":"gone");if(lab_ptr[27]&&sg_alive(lab_ptr[27])&&f%60==0&&f>300)fprintf(stderr,"[v10] shahed hp=%d at (%d,%d) to plant %.1f\n",(int)MEM32(lab_ptr[27]+0x6C),(int)MEM32(lab_ptr[27]+0x9C)/256,(int)MEM32(lab_ptr[27]+0xA0)/256,sg_dist(lab_ptr[27],lab_ptr[1]));
+ /* 12. Map darkening: enemy Starlink + Cyber unit gaps on and growing; the Cyber unit moves. */
+ if(f==400&&lab_ptr[29]&&sg_alive(lab_ptr[29]))sg_ai_move(lab_ptr[29],70*256+128,50*256+128);
+ if(f%150==0&&f>=200&&f<=1500)for(int k=28;k<=29;k++)if(lab_ptr[k]&&sg_alive(lab_ptr[k]))fprintf(stderr,"[v10] f=%u %s gap=%d radius=%d at (%d,%d)\n",f,k==28?"Starlink":"Cyber",MEM8(lab_ptr[k]+0x269),(int)MEM32(lab_ptr[k]+0x26C),(int)MEM32(lab_ptr[k]+0x9C)/256,(int)MEM32(lab_ptr[k]+0xA0)/256);
  /* 9. LINK attack order is handed to its drone. */
  if(f==1450&&sg_alive(link)){uint32_t e=0;for(int i=16;i<=25&&!e;i++)if(i!=23&&lab_ptr[i]&&sg_alive(lab_ptr[i]))e=lab_ptr[i];
   if(e){MEM8(link+0x83)=1;sg_ai_order(link,e,1);fprintf(stderr,"[v10] LINK selected + attack order on enemy %s %08X\n",sg_id(e,0),e);}}

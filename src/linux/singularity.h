@@ -22,7 +22,7 @@ static int sg_enemy(uint32_t a,uint32_t b){if(!a||!b||a==b)return 0;uint32_t typ
 typedef struct {uint32_t ptr,uid,until,immune,pulse; double speedfactor; uint32_t spent_frame; uint32_t children[10],child_uid[10],ready[10],controller,controller_uid; float credited_rank; int suicide,nest_active,recalled,lasthp; uint32_t alert_until,shield_next; int32_t cable[3];
  int mode,own,dive,tethered,elite; uint32_t ord_target,ord_dest,last_launch,dkey_seen;
  uint32_t deploy_at,op_target,ring_next; int deploy_to,jj_base;
- uint32_t tent[2],tent_uid[2],uplink,uplink_uid;} SGUnit; /* v10: drone stance/ownership */
+ uint32_t tent[2],tent_uid[2],uplink,uplink_uid,gap_born; int32_t gap_x,gap_y;} SGUnit; /* v10: drone stance/ownership */
 static SGUnit sg_units[8192];
 static SGUnit *sg_state(uint32_t p){
     uint32_t uid=MEM32(p+0x10);unsigned slot=(p>>4)%8192;
@@ -190,6 +190,8 @@ static void sg_speed(uint32_t p,SGUnit*u,double factor){
 }
 /* Native hook (patch_v10_native.py, DrawHealthBar): operator drones get the
    short infantry-size bar instead of the long vehicle bar. */
+/* Native hook (patch_v10_native.py): the Cyber Warfare Unit may run a gap. */
+int sg_gap_unit(uint32_t p){return sg_on()&&p>=0x10000&&p<0xF0000000&&MEM32(p)==0x7F5C70&&!strcmp(sg_id(p,0),"SGCYBER");}
 int sg_small_bar(uint32_t p){
  if(!sg_on()||p<0x10000||p>0xEFFFFFFF||MEM32(p)!=0x7F5C70)return 0;
  return sg_opdrone(sg_id(p,0));
@@ -742,6 +744,30 @@ void sg_tick(void) {
         if(drones||vehicles){em->pulse=f+450;sg_explode(e,"EMP_FX01");
             fprintf(stderr,"[singularity] EMP tank %08X pulse: %d drones, %d vehicles\n",e,drones,vehicles);
             if(eh==MEM32(0xA83D4C))sg_message("EMP pulse: enemy drones and vehicles stalled.");else if(mine)sg_message("Enemy EMP pulse: your drones and vehicles are stalled.");}
+    }
+    /* v10: Starlink (building) and Cyber Warfare Unit (vehicle) use the
+       engine's gap generator (TechnoClass +0x269 gap on, +0x26C radius;
+       CreateGap 0x6FB170, DestroyGap 0x6FB470). The radius grows with time,
+       so the enemy map darkens slowly; the Cyber unit's gap follows it. */
+    for(int v=0;v<2;v++){uint32_t vec=v?0xA8EC78:0xA8EB40;
+        for(int i=0;i<sg_vec_count(vec);i++){
+            uint32_t g=sg_vec_at(vec,i);if(!sg_alive(g))continue;
+            int cyber=!v?0:(MEM32(g)==0x7F5C70&&!strcmp(sg_id(g,0),"SGCYBER"));
+            if(!v&&strcmp(sg_id(g,1),"SGSTARLINK"))continue;if(v&&!cyber)continue;
+            SGUnit*gu=sg_state(g);if(!gu)continue;if(!gu->gap_born)gu->gap_born=f;
+            uint32_t age=f-gu->gap_born;
+            int want=cyber?5+(int)(age/300)*2:8+(int)(age/600)*3;if(want>(cyber?20:36))want=cyber?20:36;
+            int32_t x=(int32_t)MEM32(g+0x9C),y=(int32_t)MEM32(g+0xA0);int on=MEM8(g+0x269);
+            int moved=cyber&&on&&(abs(x-gu->gap_x)>256||abs(y-gu->gap_y)>256);
+            if(!cyber&&!on)continue; /* building unpowered: the engine keeps it off */
+            if(on&&(int)MEM32(g+0x26C)==want&&!moved)continue;
+            uint32_t saved=g_ecx;
+            if(on){if(cyber){MEM32(g+0x9C)=(uint32_t)gu->gap_x;MEM32(g+0xA0)=(uint32_t)gu->gap_y;}
+                g_ecx=g;hle_call_guest(0x6FB470,0,NULL);MEM32(g+0x9C)=(uint32_t)x;MEM32(g+0xA0)=(uint32_t)y;}
+            MEM32(g+0x26C)=(uint32_t)want;g_ecx=g;hle_call_guest(0x6FB170,0,NULL);g_ecx=saved;
+            gu->gap_x=x;gu->gap_y=y;
+            if(!moved)fprintf(stderr,"[singularity] %s %08X shroud radius %d cells (gap %s)\n",cyber?"Cyber unit":"Starlink",g,want,MEM8(g+0x269)?"on":"OFF");
+        }
     }
     /* v10: B-2 limit (2 per side). The engine lets queued aircraft exceed
        BuildLimit; an extra bomber that comes out is scrapped and refunded. */
