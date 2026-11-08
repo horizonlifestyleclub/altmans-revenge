@@ -55,7 +55,19 @@ static SGLLM sg_llm;
 static char sg_llm_root[PATH_MAX];
 static const char*sg_llm_dir(void){static int init;static const char*d;static char def[PATH_MAX+32];if(init)return d;init=1;
  d=getenv("SG_LLM_DIR");if(d&&!*d)d=NULL;
- char here[PATH_MAX];if(realpath(__FILE__,here)){char*cut=strstr(here,"/src/linux/adaptive_ai_llm.h");if(cut){*cut=0;snprintf(sg_llm_root,sizeof sg_llm_root,"%s",here);}}
+ /* v11: an installed game (Altman's Revenge installer) keeps llm-bridge/ next to
+    the executable; SG_LLM_ROOT overrides; a developer build falls back to the
+    checkout it was compiled from. */
+ {const char*env=getenv("SG_LLM_ROOT");char exe[PATH_MAX]={0},cand[3][PATH_MAX];int nc=0;
+  if(env&&*env)snprintf(cand[nc++],PATH_MAX,"%s",env);
+#ifdef __APPLE__
+  {uint32_t sz=sizeof exe;extern int _NSGetExecutablePath(char*,uint32_t*);if(_NSGetExecutablePath(exe,&sz))exe[0]=0;}
+#else
+  {ssize_t k=readlink("/proc/self/exe",exe,sizeof exe-1);exe[k>0?k:0]=0;}
+#endif
+  char real[PATH_MAX];if(exe[0]&&realpath(exe,real)){char*s=strrchr(real,'/');if(s){*s=0;snprintf(cand[nc++],PATH_MAX,"%s",real);s=strrchr(real,'/');if(s){*s=0;snprintf(cand[nc++],PATH_MAX,"%s",real);}}}
+  for(int i=0;i<nc&&!sg_llm_root[0];i++){char probe[PATH_MAX+40];struct stat st;snprintf(probe,sizeof probe,"%s/llm-bridge/commander.py",cand[i]);if(!stat(probe,&st))snprintf(sg_llm_root,sizeof sg_llm_root,"%s",cand[i]);}}
+ char here[PATH_MAX];if(!sg_llm_root[0]&&realpath(__FILE__,here)){char*cut=strstr(here,"/src/linux/adaptive_ai_llm.h");if(cut){*cut=0;snprintf(sg_llm_root,sizeof sg_llm_root,"%s",here);}}
  if(!d&&sg_llm_root[0]){char probe[PATH_MAX+40];snprintf(probe,sizeof probe,"%s/llm-bridge/commander.py",sg_llm_root);struct stat st;
   if(!stat(probe,&st)){snprintf(def,sizeof def,"%s/llm-bridge/run",sg_llm_root);mkdir(def,0755);d=def;}}
  if(d)fprintf(stderr,"[llm] commander folder %s\n",d);return d;}
@@ -71,8 +83,15 @@ static void sg_llm_spawn(void){static int done;if(done||!sg_llm_dir())return;don
  pid_t pid;int rc=posix_spawn(&pid,"/usr/bin/env",&fa,&at,argv,environ);posix_spawn_file_actions_destroy(&fa);posix_spawnattr_destroy(&at);
  fprintf(stderr,rc?"[llm] could not start the commander (%d)\n":"[llm] started the Qwen commander (pid %d)\n",rc?rc:(int)pid);}
 /* Only one house is commanded: the first Brutal Plus house on the top slot. */
+/* v11: Qwen is a requirement for the Qwen Commander slot. When the commander
+ * is not installed, or Ollama/the model does not answer, say so on screen once
+ * (the AI then plays as Brutal Plus). */
+static void sg_llm_require(const char*why){static int said;if(said)return;said=1;
+ char msg[240];snprintf(msg,sizeof msg,"Qwen Commander needs Ollama and the qwen3:4b model (%s). Run the Altman's Revenge installer. This AI plays as Brutal Plus.",why);
+ fprintf(stderr,"[llm] %s\n",msg);sg_message(msg);}
 static int sg_llm_house(uint32_t h){
- if(!sg_llm_dir()||(int32_t)MEM32(h+0x184)!=0)return 0;
+ if((int32_t)MEM32(h+0x184)!=0)return 0;
+ if(!sg_llm_dir()){sg_llm_require("commander not installed");return 0;}
  if(!sg_llm.house){sg_llm.house=h;sg_llm_spawn();}return sg_llm.house==h;}
 static int sg_llm_live(uint32_t h){return sg_llm_house(h)&&sg_llm.got&&MEM32(0xA8ED84)-sg_llm.got<900;}
 static int sg_llm_is(uint32_t h,const char*field,const char*value){if(!sg_llm_live(h))return 0;
@@ -274,9 +293,9 @@ static const char*sg_llm_pick_ship(uint32_t h,unsigned turn){
  int cap=!strcmp(sg_llm.navy,"attack")?10:6;if(sg_llm_fleet(h,NULL)>=cap)return NULL;
  int side=MEM32(h+0x1E8);const char*c[6];int n=0;
 #define SH(id) do{if(n<6&&sg_bp_eligible(h,id))c[n++]=id;}while(0)
- if(side==1){SH("SUB");SH("HYD");SH("SUB");SH("DRED");SH("SQD");}
+ if(side==1){SH("SUB");SH("SGSEADRONE");SH("HYD");SH("SGSEADRONE");SH("DRED");SH("SQD");}
  else if(side==2){SH("BSUB");}
- else{SH("DEST");SH("DEST");SH("AEGIS");SH("DLPH");SH("CARRIER");}
+ else{SH("DEST");SH("SGDOLPH");SH("AEGIS");SH("SGDOLPH");SH("DEST");SH("CARRIER");}
 #undef SH
  return n?c[turn%n]:NULL;}
 static SGLLMSeen*sg_llm_navy_target(int hx,int hy,uint32_t f){
@@ -359,7 +378,7 @@ static void sg_llm_write(SGBPBrain*b,uint32_t f){
  n+=snprintf(o+n,S-n,"\"raid\":{\"units\":%d,\"target\":\"%s\"},",ralive,sg_llm.rn?sg_llm.raid_tid:"");
  n=sg_llm_put_tally(o,n,S,"my_units",mu,nmu);n+=snprintf(o+n,S-n,",");n=sg_llm_put_tally(o,n,S,"my_buildings",mb,nmb);
  /* what we can build right now (for named build orders) */
- static const char*cand[]={"E1","E2","GGI","FLAKT","SGOP","SGLINK","INIT","BRUTE","MTNK","FV","SREF","TNKD","SGTANK","SGEMPT","HTNK","HTK","V3","APOC","SGSHAHED","SGTANKC","LTNK","YTNK","DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB",NULL};
+ static const char*cand[]={"E1","E2","GGI","FLAKT","SGOP","SGLINK","INIT","BRUTE","MTNK","FV","SREF","TNKD","SGTANK","SGEMPT","HTNK","HTK","V3","APOC","SGSHAHED","SGTANKC","LTNK","YTNK","DEST","AEGIS","DLPH","CARRIER","SUB","HYD","DRED","SQD","BSUB","SGDOLPH","SGSEADRONE",NULL};
  n+=snprintf(o+n,S-n,",\"can_build\":[");int nc=0;for(int i=0;cand[i];i++)if(sg_bp_eligible(h,cand[i]))n+=snprintf(o+n,S-n,"%s\"%s\"",nc++?",":"",cand[i]);n+=snprintf(o+n,S-n,"]");
  /* in sight right now */
  n+=snprintf(o+n,S-n,",\"in_sight\":{\"units\":%d,\"value\":%d,\"near_my_base\":%d,\"near_my_ore\":%d,\"air_or_drones\":%d,",eunits,evalue,near_base,near_ore,eair);
@@ -426,6 +445,10 @@ static void sg_llm_frame(SGBPBrain*b,uint32_t f){
   fprintf(stderr,"[llm] new match: %d enemy start areas known from the map\n",sg_llm.nstarts);}
  sg_llm.last_frame=f;
  if(f%8==0)sg_llm_read_orders(f);
+ if(f==2700&&!sg_llm.got){ /* 3 minutes without one answer */
+  char sp[PATH_MAX+40],why[120]="no answer from Ollama";snprintf(sp,sizeof sp,"%s/status.txt",sg_llm_dir());
+  FILE*fp=fopen(sp,"r");if(fp){if(fgets(why,sizeof why,fp)){char*nl=strchr(why,'\n');if(nl)*nl=0;}fclose(fp);}
+  sg_llm_require(why);}
  if(f%900==0&&f)sg_llm_score(h,f);
  if(f%15==0){
   int hp=0;for(int i=0;i<sg_vec_count(0xA8EB40);i++){uint32_t q=sg_vec_at(0xA8EB40,i);if(sg_alive(q)&&MEM32(q+0x21C)==h)hp+=MEM32(q+0x6C);}
