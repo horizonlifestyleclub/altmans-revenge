@@ -27,9 +27,12 @@ Custom drone and AI state still does not support reliable save/load; use a fresh
 
 Prepared locally. No commit, push, pull request or deployment. The test is available on demand and is not left running automatically.
 
-## Brutal Plus + Qwen commander (branch v10/llm)
+## Brutal Plus + Qwen commander (branch v10/qwen-smart)
 
-- **Brutal Plus Qwen.command**: you vs Brutal Plus, with its strategy steered by a local Qwen model.
-- **Watch Qwen vs Classic.command**: the Qwen-steered Brutal Plus vs the original Brutal AI; you watch.
-- Needs Ollama and the model (`brew install ollama`, `ollama pull qwen3:4b`). The launchers start Ollama if it isn't running.
-- Details, files and the learning playbook: `llm-bridge/README.md`.
+- In the **Singularity - Brutal Plus** skirmish menu, pick an AI's difficulty:
+  **Qwen Commander (learning)** (hardest), **Brutal Plus**, or **Classic Brutal (original AI)**.
+- Choosing Qwen starts the commander and Ollama by itself, however the game was launched.
+  If Ollama or the model is missing, that AI simply plays as Brutal Plus.
+- After every game of 5+ minutes it hones `llm-bridge/memory/strategy.md` and `opponent.md`
+  (how you play). Only the last 3 matches and a few strategy versions are kept.
+- Details: `llm-bridge/README.md`.

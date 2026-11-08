@@ -275,7 +275,7 @@ b = (base / 'ra2md.csf').read_bytes()
 magic, version, nlabels, nstrings, unused, lang = struct.unpack_from('<4s5I', b)
 pos = 24
 entries = []
-names = {'GUI:AIEasy': 'Classic Brutal (original AI)', 'GUI:AINormal': 'Brutal Plus Veteran', 'GUI:AIHard': 'Brutal Plus'}
+names = {'GUI:AIEasy': 'Classic Brutal (original AI)', 'GUI:AINormal': 'Brutal Plus', 'GUI:AIHard': 'Qwen Commander (learning)'}
 for _ in range(nlabels):
     count, n = struct.unpack_from('<II', b, pos + 4)
     pos += 12

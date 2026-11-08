@@ -246,6 +246,9 @@ def end_of_match(run, decisions):
     shutil.copyfile(log, arch / 'match.jsonl')
     (arch / 'decisions.json').write_text(json.dumps(decisions, indent=0))
     print('[commander] match over after %d minutes; summary in %s' % (last['min'], arch), flush=True)
+    old = sorted(p for p in (MEMORY / 'matches').iterdir() if p.is_dir())
+    for p in old[:-3]:   # keep only the last 3 matches; the lessons live in strategy.md / opponent.md
+        shutil.rmtree(p, ignore_errors=True)
     if (run / 'score.jsonl').exists():
         shutil.copyfile(run / 'score.jsonl', arch / 'score.jsonl')
     # The master agent reviews the match and rewrites the strategy in the background,
@@ -268,9 +271,43 @@ def game_alive():
         return False
 
 
+def ensure_ollama():
+    """Start Ollama if it is not running (for games started from the menu)."""
+    try:
+        urllib.request.urlopen(OLLAMA + '/api/tags', timeout=2).read()
+        return
+    except Exception:
+        pass
+    exe = shutil.which('ollama') or next((p for p in ('/opt/homebrew/bin/ollama', '/usr/local/bin/ollama') if os.path.exists(p)), None)
+    if not exe:
+        print('[commander] Ollama is not installed; the AI plays as Brutal Plus without Qwen', flush=True)
+        return
+    import subprocess
+    subprocess.Popen([exe, 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(40):
+        time.sleep(0.5)
+        try:
+            urllib.request.urlopen(OLLAMA + '/api/tags', timeout=2).read()
+            print('[commander] started Ollama', flush=True)
+            return
+        except Exception:
+            pass
+
+
 def main():
     run = Path(ARGS.dir).resolve()
     run.mkdir(parents=True, exist_ok=True)
+    pidfile = run / 'commander.pid'
+    try:  # only one commander per folder (the game and a launcher may both try to start one)
+        other = int(pidfile.read_text().strip())
+        if other != os.getpid():
+            os.kill(other, 0)
+            print('[commander] another commander (pid %d) is already running; exiting' % other, flush=True)
+            return
+    except (OSError, ValueError):
+        pass
+    pidfile.write_text(str(os.getpid()))
+    ensure_ollama()
     if not (MEMORY / 'strategy.md').exists() and (MEMORY / 'strategies/v001.md').exists():
         shutil.copyfile(MEMORY / 'strategies/v001.md', MEMORY / 'strategy.md')  # first run: the starting strategy
     ledger = run / 'ledger.json'

@@ -219,6 +219,20 @@ def main():
     with logp.open('a') as fh:
         fh.write('| %s | %s | %s | %d | %s |\n' % (current, arch.name, result, rows[-1]['min'], name))
     (arch / 'strategy-after.md').write_text(text)
+    # Keep it lean: the strategy is honed in place. Only the current version, the
+    # previous one and the best performer stay in strategies/; the log keeps 12 rows.
+    rows_log = log_lines()
+    best = None
+    for l in rows_log:
+        cols = [c.strip() for c in l.split('|')]
+        if cols[3].startswith('WIN') or 'ahead' in cols[3]:
+            best = cols[1]
+    keep = {name, current, best, 'v001'}
+    for p in (MEMORY / 'strategies').glob('v*.md'):
+        if p.stem not in keep:
+            p.unlink()
+    head = [l for l in logp.read_text().splitlines() if not l.startswith('| v')]
+    logp.write_text('\n'.join(head + rows_log[-12:]) + '\n')
     print('[master] new strategy %s "%s" written (%.0fs total)' % (name, d.get('name', ''), time.time() - t0), flush=True)
 
 

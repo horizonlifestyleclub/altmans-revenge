@@ -21,6 +21,11 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 #include <math.h>
+#include <spawn.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <limits.h>
+extern char**environ;
 static int sg_bp_engaged(uint32_t h,uint32_t p);
 static int sg_bp_eligible(uint32_t h,const char*id);
 typedef struct {uint32_t ptr,uid,seen;int x,y,house,cost,building;char id[24];} SGLLMSeen;
@@ -42,11 +47,32 @@ typedef struct {
  char events[700];int elen;uint32_t score_min;
 } SGLLM;
 static SGLLM sg_llm;
-static const char*sg_llm_dir(void){static int init;static const char*d;if(!init){init=1;d=getenv("SG_LLM_DIR");if(d&&!*d)d=NULL;}return d;}
+/* Where the ledger and orders live: SG_LLM_DIR if a launcher set it, otherwise
+ * this checkout's llm-bridge/run (found from where this file was compiled),
+ * so picking "Qwen Commander" in the skirmish menu works however the game
+ * was started. */
+static char sg_llm_root[PATH_MAX];
+static const char*sg_llm_dir(void){static int init;static const char*d;static char def[PATH_MAX+32];if(init)return d;init=1;
+ d=getenv("SG_LLM_DIR");if(d&&!*d)d=NULL;
+ char here[PATH_MAX];if(realpath(__FILE__,here)){char*cut=strstr(here,"/src/linux/adaptive_ai_llm.h");if(cut){*cut=0;snprintf(sg_llm_root,sizeof sg_llm_root,"%s",here);}}
+ if(!d&&sg_llm_root[0]){char probe[PATH_MAX+40];snprintf(probe,sizeof probe,"%s/llm-bridge/commander.py",sg_llm_root);struct stat st;
+  if(!stat(probe,&st)){snprintf(def,sizeof def,"%s/llm-bridge/run",sg_llm_root);mkdir(def,0755);d=def;}}
+ if(d)fprintf(stderr,"[llm] commander folder %s\n",d);return d;}
+/* Start the commander (which starts Ollama if needed) unless one is already running for this folder. */
+static void sg_llm_spawn(void){static int done;if(done||!sg_llm_dir())return;done=1;
+ char pidf[PATH_MAX+40];snprintf(pidf,sizeof pidf,"%s/commander.pid",sg_llm_dir());FILE*fp=fopen(pidf,"r");
+ if(fp){int pid=0;if(fscanf(fp,"%d",&pid)!=1)pid=0;fclose(fp);if(pid>0&&kill(pid,0)==0){fprintf(stderr,"[llm] commander already running (pid %d)\n",pid);return;}}
+ if(!sg_llm_root[0])return;
+ char script[PATH_MAX+40],logp[PATH_MAX+40],gp[16];snprintf(script,sizeof script,"%s/llm-bridge/commander.py",sg_llm_root);snprintf(logp,sizeof logp,"%s/commander.log",sg_llm_dir());snprintf(gp,sizeof gp,"%d",(int)getpid());
+ char*argv[]={"/usr/bin/env","python3",script,"--dir",(char*)sg_llm_dir(),"--game-pid",gp,NULL};
+ posix_spawn_file_actions_t fa;posix_spawn_file_actions_init(&fa);posix_spawn_file_actions_addopen(&fa,1,logp,O_WRONLY|O_CREAT|O_APPEND,0644);posix_spawn_file_actions_adddup2(&fa,1,2);posix_spawn_file_actions_addopen(&fa,0,"/dev/null",O_RDONLY,0);
+ posix_spawnattr_t at;posix_spawnattr_init(&at);posix_spawnattr_setflags(&at,POSIX_SPAWN_SETSID);
+ pid_t pid;int rc=posix_spawn(&pid,"/usr/bin/env",&fa,&at,argv,environ);posix_spawn_file_actions_destroy(&fa);posix_spawnattr_destroy(&at);
+ fprintf(stderr,rc?"[llm] could not start the commander (%d)\n":"[llm] started the Qwen commander (pid %d)\n",rc?rc:(int)pid);}
 /* Only one house is commanded: the first Brutal Plus house on the top slot. */
 static int sg_llm_house(uint32_t h){
  if(!sg_llm_dir()||(int32_t)MEM32(h+0x184)!=0)return 0;
- if(!sg_llm.house)sg_llm.house=h;return sg_llm.house==h;}
+ if(!sg_llm.house){sg_llm.house=h;sg_llm_spawn();}return sg_llm.house==h;}
 static int sg_llm_live(uint32_t h){return sg_llm_house(h)&&sg_llm.got&&MEM32(0xA8ED84)-sg_llm.got<900;}
 static int sg_llm_is(uint32_t h,const char*field,const char*value){if(!sg_llm_live(h))return 0;
  const char*v=!strcmp(field,"stance")?sg_llm.stance:!strcmp(field,"target")?sg_llm.target:sg_llm.build;return !strcmp(v,value);}
@@ -171,6 +197,7 @@ static void sg_llm_scout(SGBPBrain*b,uint32_t f){
  if(f%450<15){int before=sg_llm.nstarts;sg_llm_record_starts(h);if(sg_llm.nstarts>before)fprintf(stderr,"[llm] %d enemy start areas known\n",sg_llm.nstarts);}
  if(sg_llm.scout&&!sg_llm_uid_ok(sg_llm.scout,sg_llm.scout_uid)){sg_llm_event("our scout (%s) was killed near %s",sg_llm.scout_id,sg_llm.scout_where);sg_llm.scout=0;sg_llm.scout_lost_at=f;}
  int asked=!strcmp(sg_llm.scout_req,"now");if(asked)sg_llm.scout_req[0]=0;
+ static uint32_t last_trip;if(asked&&last_trip&&f-last_trip<900)asked=0; /* at most one asked-for trip a minute */
  if(!sg_llm.scout){
   if(!asked&&(f<sg_llm.scout_next||(sg_llm.scout_lost_at&&f-sg_llm.scout_lost_at<450)))return;
   uint32_t best=0;int bs=1000;
@@ -180,17 +207,22 @@ static void sg_llm_scout(SGBPBrain*b,uint32_t f){
   int goal=-1;double gd=1e30;for(int k=0;k<sg_llm.nstarts;k++)if(!sg_llm.starts[k].scouted){double d=sg_llm_cells(sg_llm.starts[k].x-b->sx,sg_llm.starts[k].y-b->sy);if(d<gd){gd=d;goal=k;}}
   int tx,ty;
   if(goal>=0){tx=sg_llm.starts[goal].x;ty=sg_llm.starts[goal].y;}
-  else{uint32_t oldest=0xFFFFFFFF;int pick=-1;for(int k=0;k<sg_llm.nstarts;k++)if(sg_llm.starts[k].scouted<oldest){oldest=sg_llm.starts[k].scouted;pick=k;}
-   if(pick<0)return;goal=pick;tx=sg_llm.starts[pick].x;ty=sg_llm.starts[pick].y;}
+  else{/* everything checked: search where the enemy was last seen (newest memory), else re-check the oldest start */
+   SGLLMSeen*best_s=NULL;for(int j=0;j<384;j++){SGLLMSeen*s=&sg_llm.seen[j];if(s->seen&&(!best_s||s->seen>best_s->seen)&&sg_llm_cells(s->x-b->sx,s->y-b->sy)>12)best_s=s;}
+   uint32_t oldest=0xFFFFFFFF;int pick=-1;for(int k=0;k<sg_llm.nstarts;k++)if(sg_llm.starts[k].scouted<oldest){oldest=sg_llm.starts[k].scouted;pick=k;}
+   if(best_s&&(pick<0||f-oldest<2700)){goal=-1;tx=best_s->x;ty=best_s->y;}
+   else if(pick>=0&&f-oldest>=1800){goal=pick;tx=sg_llm.starts[pick].x;ty=sg_llm.starts[pick].y;}
+   else return;}
+  last_trip=f;
   sg_llm.scout=best;sg_llm.scout_uid=MEM32(best+0x10);sg_llm.scout_since=f;sg_llm.scout_goal=goal;sg_llm.scout_tx=tx;sg_llm.scout_ty=ty;snprintf(sg_llm.scout_id,sizeof sg_llm.scout_id,"%s",sg_ai_id(best));
-  snprintf(sg_llm.scout_where,sizeof sg_llm.scout_where,"enemy start %s %d cells",sg_llm_dir8(tx-b->sx,ty-b->sy),sg_llm_cells(tx-b->sx,ty-b->sy));
+  snprintf(sg_llm.scout_where,sizeof sg_llm.scout_where,"%s %s %d cells",goal>=0?"enemy start":"last enemy sighting",sg_llm_dir8(tx-b->sx,ty-b->sy),sg_llm_cells(tx-b->sx,ty-b->sy));
   sg_bp_move(best,tx,ty);sg_llm_event("scout %s sent to %s",sg_llm.scout_id,sg_llm.scout_where);return;}
  uint32_t p=sg_llm.scout;int px=MEM32(p+0x9C),py=MEM32(p+0xA0);
  snprintf(sg_llm.scout_where,sizeof sg_llm.scout_where,"%s %d cells from our base",sg_llm_dir8(px-b->sx,py-b->sy),sg_llm_cells(px-b->sx,py-b->sy));
  if(sg_llm_cells(px-sg_llm.scout_tx,py-sg_llm.scout_ty)<6||f-sg_llm.scout_since>3600){
-  SGLLMStart*s=&sg_llm.starts[sg_llm.scout_goal];s->scouted=f;int found=0;
-  for(int j=0;j<384;j++){SGLLMSeen*e=&sg_llm.seen[j];if(e->seen&&e->building&&f-e->seen<300&&sg_llm_cells(e->x-s->x,e->y-s->y)<20)found++;}
-  sg_llm_event(found?"scout reached enemy start %s: enemy base found (%d buildings)":"scout reached enemy start %s: empty",sg_llm_dir8(s->x-b->sx,s->y-b->sy),found);
+  int found=0;for(int j=0;j<384;j++){SGLLMSeen*e=&sg_llm.seen[j];if(e->seen&&e->building&&f-e->seen<300&&sg_llm_cells(e->x-sg_llm.scout_tx,e->y-sg_llm.scout_ty)<20)found++;}
+  if(sg_llm.scout_goal>=0)sg_llm.starts[sg_llm.scout_goal].scouted=f;
+  sg_llm_event(found?"scout reached %s: enemy base found (%d buildings)":"scout reached %s: nothing there now",sg_llm.scout_goal>=0?"an enemy start area":"the last enemy sighting",found);
   sg_bp_move(p,b->sx,b->sy);sg_llm.scout=0;
   int all=1;for(int k=0;k<sg_llm.nstarts;k++)if(!sg_llm.starts[k].scouted)all=0;
   sg_llm.scout_next=all?f+2700:f; /* re-scout every 3 minutes once everything is known */
@@ -321,6 +353,7 @@ static void sg_llm_score(uint32_t h,uint32_t f){
 static void sg_llm_frame(SGBPBrain*b,uint32_t f){
  uint32_t h=b->house;if(!sg_llm_house(h)||!b->sx)return;
  if(f<sg_llm.last_frame||!sg_llm.last_write&&!sg_llm.nstarts){uint32_t keep=sg_llm.house;memset(&sg_llm,0,sizeof sg_llm);sg_llm.house=keep;sg_llm.prev_army_dist=-1;sg_llm_record_starts(h);
+  char op[PATH_MAX+40];snprintf(op,sizeof op,"%s/orders.json",sg_llm_dir());unlink(op); /* no stale orders from an earlier match */
   fprintf(stderr,"[llm] new match: %d enemy start areas known from the map\n",sg_llm.nstarts);}
  sg_llm.last_frame=f;
  if(f%8==0)sg_llm_read_orders(f);

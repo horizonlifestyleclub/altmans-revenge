@@ -178,7 +178,7 @@ static void sg_bp_army(SGBPBrain*b,uint32_t f,int difficulty){
   int need=(4000+600*minutes)*(4-difficulty)/4;if(need>20000)need=20000;
   need=need*sg_llm_need_pct(h)/100; /* attack/harass launch sooner, defend/expand hold back */
   int waited=f-b->state_since>3600&&value>=need/2&&n>=6;
-  if((value>=need&&n>=8)||n>=40||waited){
+  if(((value>=need&&n>=8)||n>=40||waited)&&f>2700){ /* no wave before minute 3: the starting units guard home */
    b->wn=0;for(int i=0;i<sg_vec_count(0xA8EC78)&&b->wn<96;i++){uint32_t p=sg_vec_at(0xA8EC78,i);if(sg_bp_free(p,h)&&MEM32(p+0x6C)*10>=sg_bp_strength(sg_ai_id(p))*3)b->wave[b->wn++]=p;}
    /* Stage six cells short of the target, then assault together. */
    double dx=b->sx-tx,dy=b->sy-ty,len=sqrt(dx*dx+dy*dy);if(len<1)len=1;
