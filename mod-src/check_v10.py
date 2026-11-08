@@ -11,7 +11,7 @@ assert d['Selectable'] == 'yes' and d['VoiceSelect'] == 'SGDroneSelect' and 'Sea
 gun = r['SGDRONEGUNWH']['Verses'].split(',')
 assert r['SGDRONEGUN']['Warhead'] == 'SGDRONEGUNWH' and gun[5] == '0%' and gun[8] == '0%', gun
 boom = r['SGDRONEWH']['Verses'].split(',')
-assert boom[5] == '100%' and boom[8] == '15%' and float(r['SGDRONEWH']['CellSpread']) <= .5
+assert boom[5] == '100%' and boom[8] == '75%' and float(r['SGDRONEWH']['CellSpread']) <= .5
 # LINK speaks only with its own radio lines (no Tanya, no Engineer clips).
 link = r['SGLINK']
 assert link['VoiceSelect'] == 'SGLinkV10Select' and not any(x in ''.join(v for k, v in link.items() if k.startswith('Voice')) for x in ('Tanya', 'EngAll'))
@@ -33,5 +33,13 @@ for u, img in [('SGPDRONE', 'sgpdrone'), ('SGSWARM', 'sgswarm'), ('SGSWARMC', 's
     assert sec.lower() == img and sec in a and 'Image' not in a[sec] or a[sec].get('Image', '').lower() == img, (u, sec)
     assert (mod / (img + '.vxl')).exists(), img
 # Singularity price.
-assert r['SGCOLO']['Cost'] == '7500' and all(r['SGNODE%d' % i]['Cost'] == '1500' for i in range(1, 6))
+assert r['SGCOLO']['Cost'] == '7500' and all(r['SGNODE%d' % i]['Cost'] == '3000' for i in range(1, 4))
+assert r['SGNODE4']['TechLevel'] == '-1' and r['SGNODE5']['TechLevel'] == '-1'
+# Round 3: fibre drones, camp tents, strike drones behind the uplink, EMP tank, weaker gun.
+assert r['SGFIBRE']['Image'] == 'SGFIBRE' and int(r['SGFIBRE']['JumpjetSpeed']) < int(r['SGPDRONE']['JumpjetSpeed']) and (mod / 'sgfibre.vxl').exists()
+assert r['SGTENT']['MaxNumberOccupants'] == '3' and r['SGTENT']['CanBeOccupied'] == 'yes'
+assert r['SGFPV']['Cost'] == '30' and r['SGFPVC']['Cost'] == '20' and 'SGUPLINK' in r['SGFPV']['Prerequisite'] and r['SGUPLINK']['InvisibleInGame'] == 'yes'
+assert int(r['SGFPVC']['Strength']) <= 0.65 * int(r['SGFPV']['Strength']) + 1
+assert r['SGEMPT']['Owner'] and int(r['SGDRONEGUN']['Damage']) <= 12
+assert 'IsSimpleDeployer' not in r['SGTANK']
 print('PASS v10: visible selectable drones with own voice, gun/suicide warheads, LINK radio voice, infantry AA, $7,500 Singularity.')

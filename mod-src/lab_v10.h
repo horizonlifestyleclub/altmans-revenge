@@ -15,6 +15,7 @@ static const struct {const char *id;uint32_t vector;int x,y,owner;} lab_objects[
  {"NACNST",0xA83C68,75,35,1},{"NAPOWR",0xA83C68,86,35,1},
  /*23*/{"JUMPJET",0xA8E348,63,58,0},
  /*24*/{"MTNK",0xA83CE0,61,59,1},
+ /*25*/{"SGEMPT",0xA83CE0,64,66,1},
 };
 #define LAB_N (int)(sizeof lab_objects/sizeof lab_objects[0])
 static uint32_t lab_ptr[LAB_N];
@@ -79,6 +80,7 @@ static void sg_lab_tick(uint32_t f){
  if(lost_at&&f>lost_at&&f%15==0){uint32_t d;if(lab_drones(link,&d)){fprintf(stderr,"[v10] LINK drone back after %.1f s\n",(f-lost_at)/15.);lost_at=0;}}
  /* 3. Bastion deploy: count drones (max 5, one at a time). */
  if(f==200&&sg_alive(bas)){sg_ai_order(bas,0,16);fprintf(stderr,"[v10] Bastion deploy order\n");}
+ if(f==420&&sg_alive(bas)){SGUnit*u=sg_state(bas);for(int j=0;u&&j<5;j++)if(u->children[j])fprintf(stderr,"[v10] bastion drone %d type=%s\n",j,sg_id(u->children[j],0));}
  if(f%15==0&&f>=200&&f<=700&&sg_alive(bas))fprintf(stderr,"[v10] f=%u bastion deployed=%d type=%s mission=%d drones=%d\n",f,MEM8(bas+0x6E0),sg_id(bas,0),(int)MEM32(bas+0xAC),lab_drones(bas,NULL));
  /* 3b. Attack order on the selected Bastion sends all of its drones. */
  if(f==600&&sg_alive(bas)&&lab_ptr[24]&&sg_alive(lab_ptr[24])){tank=lab_ptr[24];MEM8(bas+0x83)=1;sg_ai_order(bas,tank,1);fprintf(stderr,"[v10] Bastion selected + attack order on a tank %.1f cells away\n",sg_dist(bas,tank));}
@@ -122,7 +124,13 @@ static void sg_lab_tick(uint32_t f){
   uint32_t c=sg_super(houses[0],*id);if(c&&MEM8(c+0x6D)&&sg_super_left(c)>450){MEM32(c+0x30)=f;MEM32(c+0x38)=450;fprintf(stderr,"[lab] shortened %s\n",*id);}
  }
  {SGHouse*s=sg_house(houses[0]);if(s&&s->state==SG_ACTIVE&&!late_tank){late_tank=lab_spawn("MTNK",0xA83CE0,houses[0],44,72);fprintf(stderr,"[v10] f=%u Singularity ACTIVE; new tank %08X rank=%.1f\n",f,late_tank,late_tank?sg_rank(late_tank):-1);}
-  if(late_tank&&f%60==0&&sg_alive(late_tank))fprintf(stderr,"[v10] f=%u new tank rank=%.1f (2.0 = elite) colossus cost=%d\n",f,sg_rank(late_tank),0);}
+  if(late_tank&&f%60==0&&sg_alive(late_tank))fprintf(stderr,"[v10] f=%u new tank rank=%.1f (1.0 = one star) colossus cost=%d\n",f,sg_rank(late_tank),0);}
  if(f==1250)lab_view(50,70);
+ /* 9. LINK attack order is handed to its drone. */
+ if(f==1450&&sg_alive(link)){uint32_t e=0;for(int i=16;i<=25&&!e;i++)if(i!=23&&lab_ptr[i]&&sg_alive(lab_ptr[i]))e=lab_ptr[i];
+  if(e){MEM8(link+0x83)=1;sg_ai_order(link,e,1);fprintf(stderr,"[v10] LINK selected + attack order on enemy %s %08X\n",sg_id(e,0),e);}}
+ if(f==1460&&sg_alive(link)){uint32_t d;MEM8(link+0x83)=0;if(lab_drones(link,&d)&&d)fprintf(stderr,"[v10] LINK drone target after hand-off: %08X (LINK target %08X)\n",MEM32(d+0x2B4),MEM32(link+0x2B4));}
+ /* 10. Rank after Singularity must be 1 star; uplink unlocks strike drones. */
+ if(f%300==0&&late_tank){uint32_t up=sg_find_unit_type("SGFPV");fprintf(stderr,"[v10] f=%u late tank rank=%.1f; SGFPV type=%08X\n",f,sg_rank(late_tank),up);}
  if(f%300==0)fflush(stderr);
 }

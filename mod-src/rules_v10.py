@@ -76,3 +76,58 @@ r['SGTANKD']['UIName']='Name:SGTANKD'
 r['SGCOLO']['Cost']='7500'
 for _i in range(1,6):
     r['SGNODE%d'%_i]['Cost']='1500'
+
+# ======================= v10.2 (feedback round 3) =======================
+# Drone balance: the gun is weaker; a dive is strong against buildings.
+r['SGDRONEGUN']['Damage']='12'
+r['SGDRONEWH']['Verses']='100%,100%,100%,100%,100%,100%,75%,75%,75%,100%,100%'
+
+# Bastion: deploy is runtime-only (D key) - the engine's own simple-deploy
+# raced the runtime and made deploying inconsistent.
+for _k in ['IsSimpleDeployer','UnloadingClass']:
+    r['SGTANK'].pop(_k,None)
+
+# Fibre-optic drones (Bastion): own model, slower, cable-guided, immune to EMP.
+add('SGFIBRE','SGPDRONE','VehicleTypes','Fibre-optic drone',Image='SGFIBRE',Speed='10',JumpjetSpeed='14',Strength='80')
+a['SGFIBRE']={'Voxel':'yes','Remapable':'yes','Cameo':'sglnicon','AltCameo':'sglnicon','PrimaryFireFLH':'0,0,0'}
+labels['Name:SGFIBRE']='Fibre-optic drone (cable-guided, EMP-proof)'
+
+# Drone camp: deployed Bastions put up two Army Tents; up to 3 infantry each, firing out.
+add('SGTENT','CAARMY01','BuildingTypes','Drone Camp Tent',Image='CAARMY01',MaxNumberOccupants='3',
+    Owner=ALL,TechLevel='-1',Insignificant='yes',Capturable='no',Strength='300',BaseNormal='no',Unsellable='yes')
+
+# Factory drones (unlocked by an active Singularity via the hidden SGUPLINK
+# prerequisite the runtime places beside the core). Immune to EMP.
+add('SGUPLINK','GAPILL','BuildingTypes','Singularity Uplink',Owner=ALL,TechLevel='-1',InvisibleInGame='yes',
+    Insignificant='yes',Immune='yes',Selectable='no',Capturable='no',Power='0',BaseNormal='no',Primary='',
+    ClickRepairable='no',Unsellable='yes',Foundation='1x1',Points='0',Sight='0',RadarInvisible='yes',AIBuildThis='no')
+for _k in ['SGFPV','SGFPVC']:
+    china=_k=='SGFPVC'
+    add(_k,'SGPDRONE','VehicleTypes','Strike drone' if not china else 'Strike drone (China)',
+        Cost='20' if china else '30',Strength='45' if china else '70',TechLevel='3',
+        Owner=CN if china else ALLIES,RequiredHouses=CN if china else '',ForbiddenHouses='',
+        Prerequisite=('NAWEAP' if china else 'GAWEAP')+',SGUPLINK',BuildLimit='0',AIBuildThis='yes',Image='SGPDRONE')
+    r[_k].pop('BuildLimit',None)
+add('SGDRONEGUNC','SGDRONEGUN',None,None,Damage='8')
+add('SGDRONEBOOMC','SGDRONEBOOM',None,None,Damage='195')
+r['SGFPVC'].update(Primary='SGDRONEGUNC',ElitePrimary='SGDRONEGUNC',Secondary='SGDRONEBOOMC',EliteSecondary='SGDRONEBOOMC')
+labels['Name:SGFPV']='Strike drone ($30, EMP-proof, D: gun / suicide)'
+labels['Name:SGFPVC']='Strike drone ($20, lighter, EMP-proof)'
+
+# China's Singularity: three compute nodes of $3,000; together they take 30%
+# longer to build than the Allied core ($7,500).
+for _i in range(1,6):
+    r['SGNODE%d'%_i]['Cost']='3000'
+    r['SGNODE%d'%_i]['BuildTimeMultiplier']='%.3f'%(1.3*7500/9000*float(r['SGCOLO'].get('BuildTimeMultiplier','1')))
+for _i in (4,5):
+    r['SGNODE%d'%_i]['TechLevel']='-1'
+r['SGSWARMC']['Prerequisite']='NAWEAP,SGNODE3'
+
+# EMP tank (Allies): pulses (runtime) when enemy drones or vehicles come within
+# 6 cells - radio drones freeze for 6 s, vehicles stall for 3 s; 30 s recharge.
+add('SGEMPT','MTNK','VehicleTypes','AEGIS EMP Tank',Image='ROBO',Cost='1400',Strength='450',Speed='7',
+    Owner=ALLIES,RequiredHouses='',ForbiddenHouses='',Prerequisite='GAWEAP,GATECH',TechLevel='8',
+    Primary='',ElitePrimary='',Secondary='',EliteSecondary='',CanPassiveAquire='no',AIBuildThis='no',
+    VoiceSelect='RobotTankSelect',VoiceMove='RobotTankMove',VoiceAttack='RobotTankAttackCommand')
+r['SGEMPT'].pop('Turret',None);r['SGEMPT']['Turret']='no'
+labels['Name:SGEMPT']='AEGIS EMP Tank (auto-pulse: freezes radio drones, stalls vehicles)'
