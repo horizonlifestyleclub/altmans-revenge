@@ -149,7 +149,9 @@ static void sg_bp_reflex(SGBPBrain*b,uint32_t f){
   if(hurt&&!sg_bp_engaged(h,p)){uint32_t a=sg_bp_nearest_enemy(h,p,9,-1,0);if(a){sg_bp_order(p,a,1);hits++;helpers+=sg_bp_call_help(b,p,a,8,4);}continue;}
   if(b->state==SG_BP_ASSAULT&&sg_bp_in_wave(b,p)&&f-b->mem[slot].acted>45){
    uint32_t t=MEM32(p+0x2B4),best=0;
-   if(sg_bp_is_aa(id))best=sg_bp_nearest_enemy(h,p,8,1,1);
+   if(sg_bp_is_aa(id)){best=sg_bp_nearest_enemy(h,p,8,1,1);
+    /* Rifle infantry can only hit drones, not Rocketeers or aircraft: never point them at other air units. */
+    if(best&&(!strcmp(id,"E1")||!strcmp(id,"E2"))&&!sg_bp_is_drone(sg_ai_id(best)))best=0;}
    if(!best&&(!t||MEM32(t)==0x7E3EBC)){ /* weakest enemy unit within reach */
     double bs=1e30;for(int k=0;k<sg_vec_count(0xA8EC78);k++){uint32_t q=sg_vec_at(0xA8EC78,k);uint32_t qv=MEM32(q);if((qv!=0x7F5C70&&qv!=0x7EB058)||!sg_alive(q)||!sg_enemy(h,MEM32(q+0x21C))||MEM8(q+0x134))continue;
      double d=sg_dist(p,q);if(d>6)continue;double sc=(double)MEM32(q+0x6C)/sg_bp_strength(sg_ai_id(q))+d*.05;if(sc<bs){bs=sc;best=q;}}}

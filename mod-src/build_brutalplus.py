@@ -84,6 +84,12 @@ PLANNED += ['HTNK', 'HTK', 'V3', 'APOC', 'SGSHAHED', 'SGTANKC', 'SGEMPT', 'LTNK'
 for b in SG_BUILDINGS:
     if b in r:
         r[b]['AIBuildThis'] = 'yes'
+# New units are never handed out as starting units. The Allied EMP tank (SGEMPT)
+# is left alone here: it is being redesigned on another branch.
+for kind in ('VehicleTypes', 'InfantryTypes', 'AircraftTypes'):
+    for u in r[kind].values():
+        if u.startswith('SG') and u != 'SGEMPT' and u in r:
+            r[u]['AllowedToStartInMultiplayer'] = 'no'
 
 
 def write(p, data, head):
